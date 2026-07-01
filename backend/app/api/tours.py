@@ -7,8 +7,10 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models.stop import HoursSource, Stop
 from app.models.tour import Tour
+from app.schemas.optimise import OptimiseResult
 from app.schemas.stop import CommitResult
 from app.services.opening_hours import fetch_opening_hours
+from app.services.optimiser import optimise_tour
 
 router = APIRouter(prefix="/tours", tags=["tours"])
 
@@ -61,3 +63,15 @@ def commit_tour(
         stops_total=len(stops),
         stops_enriched=enriched,
     )
+
+
+@router.post("/{tour_id}/optimise", response_model=OptimiseResult)
+def optimise(
+    tour_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> OptimiseResult:
+    """Assign every confirmed market to a working day and order it."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    return optimise_tour(db, tour)

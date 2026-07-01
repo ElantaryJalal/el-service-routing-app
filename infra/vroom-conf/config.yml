@@ -3,7 +3,10 @@
 # Schema mirrors the image default; only routingServers.osrm.car.host is changed
 # to point at the compose `osrm` service.
 cliArgs:
-  geometry: true # retrieve geometry (-g)
+  # geometry must be off: we solve in matrix mode (a precomputed OSRM duration
+  # matrix is sent with each request), so Vroom has no coordinates to build
+  # route geometry from. Route polylines, if needed, come from OSRM separately.
+  geometry: false # retrieve geometry (-g)
   planmode: false # run vroom in plan mode (-c) if set to true
   threads: 4 # number of threads to use (-t)
   explore: 5 # exploration level to use (0..5) (-x)
