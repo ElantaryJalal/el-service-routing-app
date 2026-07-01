@@ -4,6 +4,30 @@
  */
 
 export interface paths {
+    "/tours/{tour_id}/stops": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Stops
+         * @description Committed stops with address, task labels, and geocoded coordinate.
+         *
+         *     Returns every stop of the tour (including ungeocoded/unassigned ones, whose
+         *     lat/lng are null) in the tour plan's original row order. Powers the mobile
+         *     Review (edit hours) and Map (markers + detail) screens.
+         */
+        get: operations["list_stops_tours__tour_id__stops_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tours/{tour_id}/commit": {
         parameters: {
             query?: never;
@@ -147,6 +171,41 @@ export interface components {
             /** Unassigned */
             unassigned: components["schemas"]["UnassignedStop"][];
         };
+        /**
+         * StopDetail
+         * @description A committed stop with the address, task labels, and coordinate the map
+         *     needs. lat/lng come from the PostGIS geom (null until geocoded); tasks is
+         *     the stop's task labels joined for display.
+         */
+        StopDetail: {
+            /** Id */
+            id: number;
+            /** Tour Id */
+            tour_id: number;
+            /** Customer */
+            customer: string | null;
+            /** Opening Time */
+            opening_time: string | null;
+            /** Closing Time */
+            closing_time: string | null;
+            /** Service Minutes */
+            service_minutes: number | null;
+            hours_source: components["schemas"]["HoursSource"];
+            /** Status */
+            status: string;
+            /** Street */
+            street: string | null;
+            /** Postal Code */
+            postal_code: string | null;
+            /** City */
+            city: string | null;
+            /** Tasks */
+            tasks: string | null;
+            /** Lat */
+            lat: number | null;
+            /** Lng */
+            lng: number | null;
+        };
         /** StopRead */
         StopRead: {
             /** Id */
@@ -206,6 +265,37 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_stops_tours__tour_id__stops_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopDetail"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     commit_tour_tours__tour_id__commit_post: {
         parameters: {
             query?: never;

@@ -122,11 +122,10 @@ optimise appear in an **"N markets don't fit this week"** banner with reasons.
 whenever optimise runs, so Map loads cache-first and the map, day filter, and
 detail cards keep working with no signal.
 
-> **Backend contract (provisional).** The polyline is straight-line in v1 —
-> `TODO(backend)`: expose per-day OSRM geometry. `GET /tours/{id}/stops` and the
-> coordinate/address/task fields on `StopDetail` are **not yet in the backend
-> OpenAPI**; the client defines them provisionally (see `TODO(backend)` in
-> `src/api/client.ts`).
+> **Backend contract.** `GET /tours/{id}/stops` → `StopDetail` (coordinate +
+> address + tasks) is live and generated into `types.ts`. The only remaining
+> `TODO(backend)` here is per-day OSRM route geometry — the polyline is
+> straight-line in v1.
 
 ## API types
 
@@ -139,7 +138,7 @@ EXPO_PUBLIC_API_BASE_URL=http://localhost:8000 npm run gen:api
 
 The client (`src/api/client.ts`) wraps: `health` (temp), `extractPlan`,
 `getDraft`, `patchDraftStop`, `patchStop`, `commitTour`, `getStops`,
-`optimiseTour`. `extractPlan`, `getDraft`, `patchDraftStop`, `getStops`, and the
+`optimiseTour`. `extractPlan`, `getDraft`, `patchDraftStop`, and the
 `duplicate_groups` shape on `commitTour` target endpoints not yet in the backend
 and use provisional types until the backend adds them.
 

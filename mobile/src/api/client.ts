@@ -14,6 +14,9 @@ type OptimiseResult = components['schemas']['OptimiseResult'];
 type StopUpdate = components['schemas']['StopUpdate'];
 type StopRead = components['schemas']['StopRead'];
 
+/** Committed stop with address, task labels, and geocoded coordinate. */
+export type StopDetail = components['schemas']['StopDetail'];
+
 // --- Provisional types (endpoints not yet in the backend OpenAPI) ----------
 // TODO(backend): implement POST /tours/extract, GET /tours/{id}/draft,
 // PATCH /tours/{id}/draft/stops/{stop_id}, and the duplicate_groups shape on
@@ -84,22 +87,6 @@ export interface DuplicateResolution {
 export type CommitResponse = CommitResult & {
   duplicate_groups?: DuplicateGroup[];
 };
-
-/**
- * A committed stop with the geocoded coordinate and address/task fields the map
- * needs. The generated `StopRead` carries the schedule fields (closing_time,
- * service_minutes, hours_source) but no geometry/address, so we extend it.
- * TODO(backend): add GET /tours/{id}/stops returning this shape and fold the
- * extra fields into `StopRead` in the OpenAPI schema.
- */
-export interface StopDetail extends StopRead {
-  street: string | null;
-  postal_code: string | null;
-  city: string | null;
-  tasks: string | null;
-  lat: number;
-  lng: number;
-}
 
 export class ApiError extends Error {
   constructor(
@@ -207,7 +194,7 @@ export const api = {
 
   /**
    * GET /tours/{id}/stops — committed stops with coordinates + address + tasks.
-   * Provisional (see StopDetail). Used by Review (edit hours) and Map (markers).
+   * Used by Review (edit hours) and Map (markers + detail).
    */
   getStops(tourId: number): Promise<StopDetail[]> {
     return request(`/tours/${tourId}/stops`);
