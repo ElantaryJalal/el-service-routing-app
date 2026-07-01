@@ -41,4 +41,7 @@ Thumbs.db
 
 # ---- Infra / data ----
 *.osrm*
+*.osm.pbf
 data/
+infra/osrm-data/*
+!infra/osrm-data/.gitkeep

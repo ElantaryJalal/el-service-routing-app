@@ -18,5 +18,34 @@ services:
       timeout: 5s
       retries: 5
 
+  # OSRM routing engine (MLD pipeline, car profile).
+  # Requires pre-processed data in ./osrm-data — see README.md ("Data prep").
+  # OSRM_FILE is the base name of the .osrm dataset (default: region).
+  osrm:
+    image: osrm/osrm-backend:latest
+    container_name: el_service_osrm
+    command: >
+      osrm-routed --algorithm mld --max-table-size 2000
+      /data/${OSRM_FILE:-region}.osrm
+    volumes:
+      - ./osrm-data:/data
+    ports:
+      - "${OSRM_HOST_PORT:-5000}:5000"
+    restart: unless-stopped
+
+  # Vroom optimisation server (vroom-express) routing via the osrm service.
+  vroom:
+    image: vroomvrp/vroom-docker:v1.13.0
+    container_name: el_service_vroom
+    environment:
+      VROOM_ROUTER: osrm
+    volumes:
+      - ./vroom-conf:/conf
+    ports:
+      - "${VROOM_HOST_PORT:-3000}:3000"
+    depends_on:
+      - osrm
+    restart: unless-stopped
+
 volumes:
   pgdata:

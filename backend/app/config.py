@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     extraction_model: str = "claude-sonnet-5"
     nominatim_url: str = "https://nominatim.openstreetmap.org"
+    osrm_url: str = "http://localhost:5000"
+    vroom_url: str = "http://localhost:3000"
 
 
 settings = Settings()
