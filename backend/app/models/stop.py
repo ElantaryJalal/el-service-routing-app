@@ -1,13 +1,23 @@
-from datetime import date, datetime
+import enum
+from datetime import date, datetime, time
 from typing import Any
 
 from geoalchemy2 import Geometry, WKBElement
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, Time
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
+
+
+class HoursSource(enum.StrEnum):
+    """Where a stop's opening/closing hours came from."""
+
+    osm = "osm"
+    manual = "manual"
+    default = "default"
 
 
 class Stop(Base):
@@ -31,7 +41,25 @@ class Stop(Base):
     status_hint: Mapped[str] = mapped_column(
         String, nullable=False, server_default="unknown"
     )
+    # Manual service-time estimate in minutes (30–600). Range enforced at the
+    # API layer, not the DB.
     service_minutes: Mapped[int | None] = mapped_column(Integer)
+    # Single weekday opening/closing pair. The tour runs Mon–Fri and German
+    # retail hours are near-uniform across weekdays, so one pair is enough for
+    # now. Per-weekday hours are a future extension.
+    opening_time: Mapped[time | None] = mapped_column(Time)
+    # closing_time drives the "do it before it closes" feasibility check.
+    closing_time: Mapped[time | None] = mapped_column(Time)
+    hours_source: Mapped[HoursSource] = mapped_column(
+        SAEnum(
+            HoursSource,
+            name="hours_source",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=HoursSource.default,
+        server_default=HoursSource.default.value,
+    )
     assigned_day: Mapped[date | None] = mapped_column(Date)
     sequence: Mapped[int | None] = mapped_column(Integer)
     eta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

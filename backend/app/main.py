@@ -8,9 +8,13 @@ and that PostGIS is available.
 from fastapi import FastAPI, HTTPException
 from sqlalchemy import text
 
+from app.api import stops_router, tours_router
 from app.db import engine
 
 app = FastAPI(title="EL Service Routing API", version="0.1.0")
+
+app.include_router(tours_router)
+app.include_router(stops_router)
 
 
 @app.get("/health")
