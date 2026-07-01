@@ -26,6 +26,19 @@ class StopRead(BaseModel):
     status: str
 
 
+class StopDetail(StopRead):
+    """A committed stop with the address, task labels, and coordinate the map
+    needs. lat/lng come from the PostGIS geom (null until geocoded); tasks is
+    the stop's task labels joined for display."""
+
+    street: str | None
+    postal_code: str | None
+    city: str | None
+    tasks: str | None
+    lat: float | None
+    lng: float | None
+
+
 class CommitResult(BaseModel):
     tour_id: int
     status: str

@@ -4,13 +4,14 @@ from app.schemas.optimise import (
     OptimiseResult,
     UnassignedStop,
 )
-from app.schemas.stop import CommitResult, StopRead, StopUpdate
+from app.schemas.stop import CommitResult, StopDetail, StopRead, StopUpdate
 
 __all__ = [
     "CommitResult",
     "DayStop",
     "DaySummary",
     "OptimiseResult",
+    "StopDetail",
     "StopRead",
     "StopUpdate",
     "UnassignedStop",
