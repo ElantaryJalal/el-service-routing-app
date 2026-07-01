@@ -26,6 +26,13 @@ const config: ExpoConfig = {
       'expo-image-picker',
       { photosPermission: 'Allow EL Service to pick a photo of the tour plan.' },
     ],
+    [
+      'react-native-maps',
+      // Android needs a Google Maps key; iOS uses Apple Maps (no key). The key
+      // is baked into the native project at prebuild time, so it must be set
+      // before `expo prebuild` / an EAS build — not at JS runtime.
+      { androidGoogleMapsApiKey: process.env.GOOGLE_MAPS_ANDROID_API_KEY },
+    ],
   ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8000',

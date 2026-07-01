@@ -85,6 +85,22 @@ export type CommitResponse = CommitResult & {
   duplicate_groups?: DuplicateGroup[];
 };
 
+/**
+ * A committed stop with the geocoded coordinate and address/task fields the map
+ * needs. The generated `StopRead` carries the schedule fields (closing_time,
+ * service_minutes, hours_source) but no geometry/address, so we extend it.
+ * TODO(backend): add GET /tours/{id}/stops returning this shape and fold the
+ * extra fields into `StopRead` in the OpenAPI schema.
+ */
+export interface StopDetail extends StopRead {
+  street: string | null;
+  postal_code: string | null;
+  city: string | null;
+  tasks: string | null;
+  lat: number;
+  lng: number;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -187,6 +203,14 @@ export const api = {
       `/tours/${tourId}/commit`,
       jsonInit('POST', resolutions ? { resolutions } : undefined),
     );
+  },
+
+  /**
+   * GET /tours/{id}/stops — committed stops with coordinates + address + tasks.
+   * Provisional (see StopDetail). Used by Review (edit hours) and Map (markers).
+   */
+  getStops(tourId: number): Promise<StopDetail[]> {
+    return request(`/tours/${tourId}/stops`);
   },
 
   optimiseTour(tourId: number): Promise<OptimiseResult> {
