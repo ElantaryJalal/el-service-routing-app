@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     osrm_url: str = "http://localhost:5000"
     vroom_url: str = "http://localhost:3000"
+    # Comma-separated CORS origins for browser clients (web build, dashboard).
+    # "*" is fine for local dev; set explicit origins in production.
+    cors_allow_origins: str = "*"
 
     # --- Optimiser inputs ---
     working_day_start: time = time(7, 0)
@@ -31,6 +34,10 @@ class Settings(BaseSettings):
     @property
     def skip_weekday_set(self) -> set[int]:
         return {int(x) for x in self.skip_weekdays.split(",") if x.strip() != ""}
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
 
 
 settings = Settings()

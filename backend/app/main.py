@@ -6,12 +6,22 @@ and that PostGIS is available.
 """
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.api import stops_router, tours_router
+from app.config import settings
 from app.db import engine
 
 app = FastAPI(title="EL Service Routing API", version="0.1.0")
+
+# Allow browser clients (the web build / dashboard) to call the API.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(tours_router)
 app.include_router(stops_router)
