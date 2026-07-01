@@ -1,18 +1,20 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, useLocalSearchParams } from 'expo-router';
 
 export default function ReviewScreen() {
+  const { tourId } = useLocalSearchParams<{ tourId?: string }>();
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Review</Text>
+      {tourId ? (
+        <Text style={styles.ok}>Tour #{tourId} committed ✓</Text>
+      ) : null}
       <Text style={styles.subtitle}>
-        Commit the tour, then optimise into a per-day plan (M2).
+        Next: optimise the committed tour into a per-day plan (M2).
       </Text>
-      <Link href="/map" style={styles.link}>
-        → Map
-      </Link>
-      <Link href="/confirm" style={styles.link}>
-        ← Confirm
+      <Link href="/" style={styles.link}>
+        ← New capture
       </Link>
     </View>
   );
@@ -21,6 +23,7 @@ export default function ReviewScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, gap: 12 },
   title: { fontSize: 28, fontWeight: '700' },
+  ok: { fontSize: 16, color: '#137333', fontWeight: '600' },
   subtitle: { fontSize: 15, color: '#555' },
   link: { fontSize: 16, color: '#1f6feb' },
 });

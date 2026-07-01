@@ -15,20 +15,75 @@ type StopUpdate = components['schemas']['StopUpdate'];
 type StopRead = components['schemas']['StopRead'];
 
 // --- Provisional types (endpoints not yet in the backend OpenAPI) ----------
-// TODO(backend): add POST /tours/extract and GET /tours/{id}/draft, then drop
-// these in favour of the generated `components['schemas'][...]` types.
+// TODO(backend): implement POST /tours/extract, GET /tours/{id}/draft,
+// PATCH /tours/{id}/draft/stops/{stop_id}, and the duplicate_groups shape on
+// POST /tours/{id}/commit. Once the backend exposes these, regenerate
+// `types.ts` and switch to the generated `components['schemas'][...]` types.
 export interface ImageFile {
   uri: string;
   name: string;
   type: string;
 }
-export interface ExtractResult {
-  tour_id: number;
+
+/** service_minutes bounds and fallback shared with the Confirm UI. */
+export const SERVICE_MINUTES_MIN = 30;
+export const SERVICE_MINUTES_MAX = 600;
+export const SERVICE_MINUTES_DEFAULT = 45;
+
+/** Editable, extraction-time fields of a draft stop (pre-commit). */
+export interface DraftStopFields {
+  street: string | null;
+  postal_code: string | null;
+  city: string | null;
+  order_no: string | null;
+  tasks: string | null;
+  service_minutes: number | null;
 }
+
+/**
+ * Per-field extraction confidence in [0, 1]. Absent = not scored (treated as
+ * confident). The Confirm screen flags any field < 0.6.
+ */
+export type DraftConfidence = Partial<Record<keyof DraftStopFields, number>>;
+
+export interface DraftStop extends DraftStopFields {
+  id: number;
+  confidence: DraftConfidence;
+}
+
 export interface TourDraft {
   tour_id: number;
-  stops: unknown[];
+  /** Set client-side to the captured/picked photo so Confirm can cross-check. */
+  photo_uri?: string;
+  stops: DraftStop[];
 }
+
+/** PATCH body for a draft stop — only provided fields are applied. */
+export type DraftStopUpdate = Partial<DraftStopFields>;
+
+/** A set of draft stops the backend suspects are the same market. */
+export interface DuplicateGroup {
+  /** Stable key for the group (used by the merge/keep prompt). */
+  key: string;
+  /** Human label, e.g. the shared address. */
+  label: string;
+  stop_ids: number[];
+}
+
+/** How the user resolved one duplicate group at commit time. */
+export interface DuplicateResolution {
+  key: string;
+  /** 'merge' → collapse into the first stop; 'keep' → leave all as separate. */
+  action: 'merge' | 'keep';
+}
+
+/**
+ * Commit response. When `duplicate_groups` is non-empty the tour is NOT yet
+ * committed — the client must prompt, then re-POST with resolutions.
+ */
+export type CommitResponse = CommitResult & {
+  duplicate_groups?: DuplicateGroup[];
+};
 
 export class ApiError extends Error {
   constructor(
@@ -86,8 +141,11 @@ export const api = {
     return request('/health');
   },
 
-  /** POST /tours/extract (multipart). Provisional until the backend adds it. */
-  extractPlan(image: ImageFile): Promise<ExtractResult> {
+  /**
+   * POST /tours/extract (multipart). Uploads the photographed plan and returns
+   * the parsed draft (tour id + stops with per-field confidence). Provisional.
+   */
+  extractPlan(image: ImageFile): Promise<TourDraft> {
     const form = new FormData();
     // React Native's FormData accepts a { uri, name, type } file object.
     form.append('image', image as unknown as Blob);
@@ -99,16 +157,36 @@ export const api = {
     return request(`/tours/${tourId}/draft`);
   },
 
-  patchStop(
+  /** PATCH a draft (pre-commit) stop's extracted fields. Provisional. */
+  patchDraftStop(
     tourId: number,
     stopId: number,
-    fields: StopUpdate,
-  ): Promise<StopRead> {
-    return request(`/tours/${tourId}/stops/${stopId}`, jsonInit('PATCH', fields));
+    fields: DraftStopUpdate,
+  ): Promise<DraftStop> {
+    return request(
+      `/tours/${tourId}/draft/stops/${stopId}`,
+      jsonInit('PATCH', fields),
+    );
   },
 
-  commitTour(tourId: number): Promise<CommitResult> {
-    return request(`/tours/${tourId}/commit`, jsonInit('POST'));
+  /** PATCH a committed stop's schedule fields (generated contract). */
+  patchStop(stopId: number, fields: StopUpdate): Promise<StopRead> {
+    return request(`/stops/${stopId}`, jsonInit('PATCH', fields));
+  },
+
+  /**
+   * POST /tours/{id}/commit. If `resolutions` is omitted and the backend finds
+   * possible duplicates, the response carries `duplicate_groups` and the tour
+   * stays uncommitted; re-call with resolutions to finish. Provisional body.
+   */
+  commitTour(
+    tourId: number,
+    resolutions?: DuplicateResolution[],
+  ): Promise<CommitResponse> {
+    return request(
+      `/tours/${tourId}/commit`,
+      jsonInit('POST', resolutions ? { resolutions } : undefined),
+    );
   },
 
   optimiseTour(tourId: number): Promise<OptimiseResult> {

@@ -16,7 +16,17 @@ const config: ExpoConfig = {
   android: {
     package: 'de.elservice.routing',
   },
-  plugins: ['expo-router'],
+  plugins: [
+    'expo-router',
+    [
+      'expo-camera',
+      { cameraPermission: 'Allow EL Service to photograph the tour plan.' },
+    ],
+    [
+      'expo-image-picker',
+      { photosPermission: 'Allow EL Service to pick a photo of the tour plan.' },
+    ],
+  ],
   extra: {
     apiBaseUrl: process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8000',
   },
