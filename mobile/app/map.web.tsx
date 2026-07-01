@@ -1,0 +1,351 @@
+/**
+ * Web-only Map route (react-native-maps is native-only, so the browser build
+ * gets this Leaflet version). Same data path as the native map: reads the
+ * composed OptimisedTour from the offline cache (written when Optimise runs),
+ * falling back to the network. Renders day-coloured numbered markers, a per-day
+ * route polyline, click popups with a Navigate link, and the unassigned banner.
+ *
+ * Deliberately lightweight — Leaflet is pulled from a CDN at runtime — as the
+ * seed of the office dashboard.
+ */
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
+
+import { ApiError, api } from '../src/api/client';
+import {
+  composeOptimisedTour,
+  dayColor,
+  etaNearClosing,
+  type OptimisedStop,
+  type OptimisedTour,
+} from '../src/domain/optimisedTour';
+import { tourCache } from '../src/state/tourCache';
+
+type Load =
+  | { state: 'loading' }
+  | { state: 'ready'; tour: OptimisedTour }
+  | { state: 'error'; message: string };
+
+type DayFilter = number | 'all';
+
+const LEAFLET_JS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+const LEAFLET_CSS = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+
+let leafletPromise: Promise<any> | null = null;
+
+/** Load Leaflet from the CDN once and resolve the global `L`. */
+function loadLeaflet(): Promise<any> {
+  if (typeof window === 'undefined') return Promise.reject(new Error('no window'));
+  const w = window as any;
+  if (w.L) return Promise.resolve(w.L);
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = LEAFLET_CSS;
+    document.head.appendChild(link);
+    const script = document.createElement('script');
+    script.src = LEAFLET_JS;
+    script.onload = () => resolve(w.L);
+    script.onerror = () => reject(new Error('failed to load Leaflet'));
+    document.head.appendChild(script);
+  });
+  return leafletPromise;
+}
+
+function toHHMM(time: string): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(time);
+  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : time;
+}
+
+function formatDay(date: string): string {
+  const d = new Date(`${date}T00:00:00`);
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
+  return `${wd} ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string,
+  );
+}
+
+/** Build the popup HTML for a stop. */
+function popupHtml(s: OptimisedStop): string {
+  const address = escapeHtml(
+    [s.street, [s.postal_code, s.city].filter(Boolean).join(' ')]
+      .filter(Boolean)
+      .join(', '),
+  );
+  const urgent = etaNearClosing(s.eta, s.closing_time);
+  const chips = s.tasks
+    .map(
+      (t) =>
+        `<span style="background:#eef2f7;border-radius:10px;padding:1px 7px;margin:1px;display:inline-block;font-size:11px">${escapeHtml(t)}</span>`,
+    )
+    .join(' ');
+  const nav = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
+  const etaStyle = urgent ? 'color:#b00020;font-weight:700' : 'font-weight:600';
+  return `
+    <div style="min-width:180px;font-family:system-ui,sans-serif">
+      <div style="font-weight:700;font-size:14px">${escapeHtml(s.customer ?? `Stop ${s.stop_id}`)}</div>
+      ${address ? `<div style="color:#666;font-size:12px;margin-bottom:4px">${address}</div>` : ''}
+      <div style="font-size:12px;margin:2px 0">
+        <b>${formatDay(s.assigned_day)}</b> · #${s.sequence} ·
+        <span style="${etaStyle}">ETA ${toHHMM(s.eta)}</span>
+        ${s.closing_time ? ` · closes ${toHHMM(s.closing_time)}` : ''}
+        ${s.service_minutes != null ? ` · ${s.service_minutes} min` : ''}
+      </div>
+      ${urgent ? '<div style="color:#b00020;font-size:11px;font-weight:600">Tight — arrives close to closing.</div>' : ''}
+      <div style="margin:4px 0">${chips}</div>
+      <a href="${nav}" target="_blank" rel="noopener"
+         style="display:inline-block;background:#1f6feb;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>
+    </div>`;
+}
+
+export default function MapWebScreen() {
+  const params = useLocalSearchParams<{ tourId?: string }>();
+  const tourId = Number(params.tourId);
+
+  const [load, setLoad] = useState<Load>({ state: 'loading' });
+  const [day, setDay] = useState<DayFilter>('all');
+  const [showUnassigned, setShowUnassigned] = useState(false);
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const layerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!Number.isFinite(tourId)) {
+      setLoad({ state: 'error', message: 'Missing tour id.' });
+      return;
+    }
+    let alive = true;
+    (async () => {
+      const cached = await tourCache.load(tourId);
+      if (cached) {
+        if (alive) setLoad({ state: 'ready', tour: cached });
+        return;
+      }
+      try {
+        const [result, stops] = await Promise.all([
+          api.optimiseTour(tourId),
+          api.getStops(tourId),
+        ]);
+        const tour = composeOptimisedTour(result, stops);
+        await tourCache.save(tour);
+        if (alive) setLoad({ state: 'ready', tour });
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : String(err);
+        if (alive) setLoad({ state: 'error', message });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [tourId]);
+
+  const tour = load.state === 'ready' ? load.tour : null;
+  const allStops = useMemo(() => tour?.days.flatMap((d) => d.stops) ?? [], [tour]);
+  const visibleStops = useMemo(() => {
+    if (!tour) return [];
+    return day === 'all' ? allStops : (tour.days[day]?.stops ?? []);
+  }, [tour, day, allStops]);
+
+  // Draw markers + polyline whenever the tour or the day filter changes.
+  useEffect(() => {
+    if (!tour || !containerRef.current) return;
+    let cancelled = false;
+    loadLeaflet()
+      .then((L) => {
+        if (cancelled || !containerRef.current) return;
+        if (!mapRef.current) {
+          mapRef.current = L.map(containerRef.current).setView([51.34, 12.37], 10);
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 19,
+          }).addTo(mapRef.current);
+        }
+        const map = mapRef.current;
+        setTimeout(() => map.invalidateSize(), 0); // container may have just sized
+
+        if (layerRef.current) layerRef.current.remove();
+        const group = L.layerGroup().addTo(map);
+        layerRef.current = group;
+
+        const stops = visibleStops.filter((s) => s.lat !== 0 || s.lng !== 0);
+
+        if (day !== 'all' && stops.length > 1) {
+          L.polyline(
+            stops.map((s) => [s.lat, s.lng]),
+            { color: dayColor(day as number), weight: 3, opacity: 0.8 },
+          ).addTo(group);
+        }
+
+        for (const s of stops) {
+          const color = dayColor(s.dayIndex);
+          const icon = L.divIcon({
+            className: '',
+            html: `<div style="background:${color};width:24px;height:24px;border-radius:12px;border:2px solid #fff;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4)">${s.sequence}</div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          });
+          L.marker([s.lat, s.lng], { icon })
+            .bindPopup(popupHtml(s))
+            .addTo(group);
+        }
+
+        if (stops.length > 0) {
+          map.fitBounds(
+            L.latLngBounds(stops.map((s) => [s.lat, s.lng])),
+            { padding: [50, 50], maxZoom: 14 },
+          );
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setLoad({ state: 'error', message: String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tour, day, visibleStops]);
+
+  if (load.state === 'loading') {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" />
+        <Text style={styles.muted}>Loading route…</Text>
+      </View>
+    );
+  }
+  if (load.state === 'error') {
+    return (
+      <View style={styles.centered}>
+        <Text style={styles.errorText}>{load.message}</Text>
+        <Text style={styles.muted}>Run Optimise while online first.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.flex}>
+      {/* Leaflet renders into this DOM node (react-native-web View === div). */}
+      <View ref={containerRef as any} style={styles.map} />
+
+      <View style={styles.topOverlay}>
+        {tour!.unassigned.length > 0 && (
+          <Pressable style={styles.banner} onPress={() => setShowUnassigned((v) => !v)}>
+            <Text style={styles.bannerText}>
+              ⚠︎ {tour!.unassigned.length} market
+              {tour!.unassigned.length === 1 ? '' : 's'} don’t fit this week
+            </Text>
+            <Text style={styles.bannerLink}>{showUnassigned ? 'Hide' : 'View'}</Text>
+          </Pressable>
+        )}
+        {showUnassigned && (
+          <View style={styles.unassignedBox}>
+            {tour!.unassigned.map((u) => (
+              <Text key={u.stop_id} style={styles.unassignedRow}>
+                • {u.label} — <Text style={styles.unassignedReason}>{u.reason}</Text>
+              </Text>
+            ))}
+          </View>
+        )}
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chips}
+        >
+          <Chip label="All" active={day === 'all'} onPress={() => setDay('all')} />
+          {tour!.days
+            .filter((d) => d.stops.length > 0)
+            .map((d) => (
+              <Chip
+                key={d.date}
+                label={formatDay(d.date)}
+                color={dayColor(d.dayIndex)}
+                active={day === d.dayIndex}
+                onPress={() => setDay(d.dayIndex)}
+              />
+            ))}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
+function Chip({
+  label,
+  active,
+  color,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  color?: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
+      {color && <View style={[styles.chipDot, { backgroundColor: color }]} />}
+      <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  map: { flex: 1 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
+  muted: { fontSize: 15, color: '#555', textAlign: 'center' },
+  errorText: { fontSize: 15, color: '#b00020', textAlign: 'center' },
+  topOverlay: { position: 'absolute', top: 0, left: 0, right: 0, gap: 8, padding: 12, zIndex: 1000 },
+  banner: {
+    backgroundColor: '#fff3cd',
+    borderColor: '#f0b429',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  bannerText: { color: '#7a5b00', fontWeight: '600', fontSize: 14, flex: 1 },
+  bannerLink: { color: '#1f6feb', fontWeight: '700' },
+  unassignedBox: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    gap: 4,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  unassignedRow: { fontSize: 13, color: '#333' },
+  unassignedReason: { color: '#b00020' },
+  chips: { gap: 8, paddingRight: 12 },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  chipActive: { backgroundColor: '#1f6feb', borderColor: '#1f6feb' },
+  chipText: { fontWeight: '600', color: '#333' },
+  chipTextActive: { color: '#fff' },
+  chipDot: { width: 10, height: 10, borderRadius: 5 },
+});
