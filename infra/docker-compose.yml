@@ -6,8 +6,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-el_service}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-el_service}
       POSTGRES_DB: ${POSTGRES_DB:-el_service}
+    # Host port defaults to 5432; override POSTGRES_HOST_PORT (e.g. 5433) if
+    # another Postgres already occupies 5432. Keep DATABASE_URL in sync.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
