@@ -12,9 +12,7 @@ class GeocodeCache(Base):
     __tablename__ = "geocode_cache"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    normalized_address: Mapped[str] = mapped_column(
-        String, unique=True, nullable=False
-    )
+    normalized_address: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     geom: Mapped[WKBElement] = mapped_column(
         Geometry(geometry_type="POINT", srid=4326, spatial_index=False),
         nullable=False,

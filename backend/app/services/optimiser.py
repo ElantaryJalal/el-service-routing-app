@@ -67,7 +67,12 @@ def _epoch(day: date, clock: time) -> int:
     """
     return int(
         datetime(
-            day.year, day.month, day.day, clock.hour, clock.minute, clock.second,
+            day.year,
+            day.month,
+            day.day,
+            clock.hour,
+            clock.minute,
+            clock.second,
             tzinfo=UTC,
         ).timestamp()
     )
@@ -159,10 +164,17 @@ def optimise_tour(
         db.commit()
         return OptimiseResult(
             tour_id=tour.id,
-            days=[DaySummary(
-                date=d, stops=[], drive_seconds=0, service_seconds=0,
-                day_end=None, near_limit=False,
-            ) for d in days],
+            days=[
+                DaySummary(
+                    date=d,
+                    stops=[],
+                    drive_seconds=0,
+                    service_seconds=0,
+                    day_end=None,
+                    near_limit=False,
+                )
+                for d in days
+            ],
             unassigned=unassigned,
         )
 
@@ -274,10 +286,16 @@ def _apply_solution(
     for vehicle_id, day in enumerate(days):
         route = routes_by_vehicle.get(vehicle_id)
         if route is None:
-            summaries.append(DaySummary(
-                date=day, stops=[], drive_seconds=0, service_seconds=0,
-                day_end=None, near_limit=False,
-            ))
+            summaries.append(
+                DaySummary(
+                    date=day,
+                    stops=[],
+                    drive_seconds=0,
+                    service_seconds=0,
+                    day_end=None,
+                    near_limit=False,
+                )
+            )
             continue
 
         day_stops: list[DayStop] = []
@@ -305,13 +323,15 @@ def _apply_solution(
         near_limit = last_end is not None and (
             window_end - last_end <= config.near_limit_seconds
         )
-        summaries.append(DaySummary(
-            date=day,
-            stops=day_stops,
-            drive_seconds=int(route.get("duration", 0)),
-            service_seconds=int(route.get("service", 0)),
-            day_end=_from_epoch(last_end).time() if last_end is not None else None,
-            near_limit=bool(near_limit),
-        ))
+        summaries.append(
+            DaySummary(
+                date=day,
+                stops=day_stops,
+                drive_seconds=int(route.get("duration", 0)),
+                service_seconds=int(route.get("service", 0)),
+                day_end=_from_epoch(last_end).time() if last_end is not None else None,
+                near_limit=bool(near_limit),
+            )
+        )
 
     return summaries

@@ -10,8 +10,9 @@ from collections.abc import Sequence
 
 import geoalchemy2
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "0001_initial"
 down_revision: str | None = None
@@ -22,9 +23,7 @@ depends_on: str | Sequence[str] | None = None
 def _point() -> geoalchemy2.Geometry:
     # spatial_index=False: GiST indexes are created explicitly below so the
     # migration owns them with predictable names.
-    return geoalchemy2.Geometry(
-        geometry_type="POINT", srid=4326, spatial_index=False
-    )
+    return geoalchemy2.Geometry(geometry_type="POINT", srid=4326, spatial_index=False)
 
 
 def upgrade() -> None:
@@ -88,18 +87,14 @@ def upgrade() -> None:
         sa.Column("city", sa.String, nullable=True),
         sa.Column("remarks_raw", sa.Text, nullable=True),
         sa.Column("handwritten_notes", sa.Text, nullable=True),
-        sa.Column(
-            "status_hint", sa.String, nullable=False, server_default="unknown"
-        ),
+        sa.Column("status_hint", sa.String, nullable=False, server_default="unknown"),
         sa.Column("service_minutes", sa.Integer, nullable=True),
         sa.Column("assigned_day", sa.Date, nullable=True),
         sa.Column("sequence", sa.Integer, nullable=True),
         sa.Column("eta", sa.DateTime(timezone=True), nullable=True),
         sa.Column("geom", _point(), nullable=True),
         sa.Column("confidence", postgresql.JSONB, nullable=True),
-        sa.Column(
-            "status", sa.String, nullable=False, server_default="unconfirmed"
-        ),
+        sa.Column("status", sa.String, nullable=False, server_default="unconfirmed"),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -126,9 +121,7 @@ def upgrade() -> None:
     op.create_table(
         "geocode_cache",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column(
-            "normalized_address", sa.String, nullable=False, unique=True
-        ),
+        sa.Column("normalized_address", sa.String, nullable=False, unique=True),
         sa.Column("geom", _point(), nullable=False),
         sa.Column("provider", sa.String, nullable=True),
         sa.Column(
@@ -140,12 +133,8 @@ def upgrade() -> None:
     )
 
     # Spatial (GiST) indexes on geometry columns.
-    op.create_index(
-        "ix_hotels_geom", "hotels", ["geom"], postgresql_using="gist"
-    )
-    op.create_index(
-        "ix_stops_geom", "stops", ["geom"], postgresql_using="gist"
-    )
+    op.create_index("ix_hotels_geom", "hotels", ["geom"], postgresql_using="gist")
+    op.create_index("ix_stops_geom", "stops", ["geom"], postgresql_using="gist")
     op.create_index(
         "ix_geocode_cache_geom",
         "geocode_cache",

@@ -12,8 +12,9 @@ only adds opening_time, closing_time, and the hours_source enum.
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision: str = "0002_stop_hours"
 down_revision: str | None = "0001_initial"

@@ -3,9 +3,9 @@
 from logging.config import fileConfig
 
 import geoalchemy2  # noqa: F401  registers geometry types for migrations
-from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from alembic import context
 from app import models  # noqa: F401  imports all models onto Base.metadata
 from app.config import settings
 from app.db import Base
