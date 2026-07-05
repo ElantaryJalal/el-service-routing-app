@@ -94,6 +94,9 @@ def test_commit_enriches_and_manual_patch_wins(seeded, monkeypatch):
     assert geo.hours_source == HoursSource.osm
     assert nogeo.closing_time is None
     assert nogeo.hours_source == HoursSource.default
+    # Commit confirms the tour's stops so the optimiser will schedule them.
+    assert geo.status == "confirmed"
+    assert nogeo.status == "confirmed"
     db.close()
 
     # --- Manual PATCH sticks and flips hours_source to 'manual' ---

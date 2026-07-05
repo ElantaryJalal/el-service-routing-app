@@ -1,4 +1,5 @@
 fastapi
+python-multipart
 uvicorn[standard]
 pydantic
 pydantic-settings
@@ -7,4 +8,6 @@ geoalchemy2
 alembic
 psycopg[binary]
 anthropic
+pytesseract
+pillow
 httpx

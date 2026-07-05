@@ -11,8 +11,18 @@ class Settings(BaseSettings):
     database_url: str = (
         "postgresql+psycopg://el_service:el_service@localhost:5432/el_service"
     )
+    # Extraction reader: "local" = on-device Tesseract OCR (offline, no API),
+    # "anthropic" = vision model via the Messages API. The store catalog resolves
+    # the read either way, so local OCR is enough when stores are in the catalog.
+    extraction_provider: str = "local"
+    # Tesseract language(s), e.g. "eng" or "deu+eng" if the German pack is
+    # installed (apt-get install tesseract-ocr-deu). eng handles German store
+    # names / postal codes fine; deu improves umlauts.
+    ocr_languages: str = "eng"
     anthropic_api_key: str = ""
-    extraction_model: str = "claude-sonnet-5"
+    # Vision model used when extraction_provider="anthropic". Cheap is fine:
+    # extraction runs ~weekly per tour and the catalog fills the details.
+    extraction_model: str = "claude-haiku-4-5"
     nominatim_url: str = "https://nominatim.openstreetmap.org"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     osrm_url: str = "http://localhost:5000"

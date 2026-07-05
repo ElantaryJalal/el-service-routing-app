@@ -1,0 +1,43 @@
+"""Pre-commit (draft) tour schemas for the mobile ingestion flow.
+
+A draft tour is produced by POST /tours/extract and edited on the Confirm
+screen (GET /tours/{id}/draft, PATCH /tours/{id}/draft/stops/{id}) before the
+user commits it. These mirror the provisional types in the mobile client
+(mobile/src/api/client.ts): a stop's ``tasks`` is the comma-joined task labels
+and ``confidence`` is the self-reported per-field extraction confidence used to
+flag uncertain handwriting.
+"""
+
+from pydantic import BaseModel, Field
+
+
+class DraftStop(BaseModel):
+    id: int
+    street: str | None
+    postal_code: str | None
+    city: str | None
+    order_no: str | None
+    tasks: str | None
+    service_minutes: int | None
+    # field name -> confidence in [0, 1]; absent = clearly printed.
+    confidence: dict[str, float]
+
+
+class TourDraft(BaseModel):
+    tour_id: int
+    stops: list[DraftStop]
+
+
+class DraftStopUpdate(BaseModel):
+    """PATCH body for a draft stop — only explicitly-set fields are applied.
+
+    A field sent as ``null`` clears it; the endpoint distinguishes that from an
+    omitted field via ``model_fields_set``.
+    """
+
+    street: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
+    order_no: str | None = None
+    tasks: str | None = None
+    service_minutes: int | None = Field(default=None, ge=30, le=600)

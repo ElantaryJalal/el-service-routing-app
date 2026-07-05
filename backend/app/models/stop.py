@@ -27,6 +27,11 @@ class Stop(Base):
     tour_id: Mapped[int] = mapped_column(
         ForeignKey("tours.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    # Set when the stop was matched to a catalog store (services.store_catalog);
+    # links to canonical data and, later, per-store learned service times (P4).
+    store_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stores.id", ondelete="SET NULL"), index=True
+    )
     row_index: Mapped[int] = mapped_column(Integer, nullable=False)
     date: Mapped[date | None] = mapped_column(Date)
     weekday: Mapped[str | None] = mapped_column(String)
@@ -76,6 +81,7 @@ class Stop(Base):
     )
 
     tour: Mapped["Tour"] = relationship(back_populates="stops")  # noqa: F821
+    store: Mapped["Store | None"] = relationship()  # noqa: F821
     tasks: Mapped[list["Task"]] = relationship(  # noqa: F821
         back_populates="stop", cascade="all, delete-orphan"
     )

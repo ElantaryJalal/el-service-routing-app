@@ -25,8 +25,12 @@ stores around Leipzig), 5–12 per day, finishing every stop before the week end
 - **Migrations**: Alembic
 - **API schemas**: Pydantic
 - **Extraction**: vision-capable Claude model via the Anthropic Messages API
-  (default `claude-sonnet-5`, swappable via the `EXTRACTION_MODEL` env var)
-- **Geocoding**: Nominatim (cached), with a fallback provider later
+  (default `claude-haiku-4-5`, swappable via the `EXTRACTION_MODEL` env var). A
+  cheap model suffices because extracted store names are resolved against a
+  **store catalog** (`stores` table, fuzzy-matched) that supplies the canonical
+  address, coordinate, and default tasks.
+- **Geocoding**: Nominatim (cached) — only for stops not matched to a catalog
+  store; fallback provider later
 - **Route optimisation (Phase 2)**: self-hosted OSRM + Vroom in Docker
 
 ## Build phases

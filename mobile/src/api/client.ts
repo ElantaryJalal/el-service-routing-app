@@ -6,6 +6,8 @@
  * backend OpenAPI (extract, draft). Those use the small provisional types below
  * and should switch to generated types once the backend adds the endpoints.
  */
+import { Platform } from 'react-native';
+
 import { API_BASE_URL } from './config';
 import type { components } from './types';
 
@@ -148,10 +150,17 @@ export const api = {
    * POST /tours/extract (multipart). Uploads the photographed plan and returns
    * the parsed draft (tour id + stops with per-field confidence). Provisional.
    */
-  extractPlan(image: ImageFile): Promise<TourDraft> {
+  async extractPlan(image: ImageFile): Promise<TourDraft> {
     const form = new FormData();
-    // React Native's FormData accepts a { uri, name, type } file object.
-    form.append('image', image as unknown as Blob);
+    if (Platform.OS === 'web') {
+      // On web the picked uri is a blob:/data: URL; send the real Blob so the
+      // multipart file part is well-formed. The { uri, name, type } object form
+      // is a React Native-only idiom that would stringify in the browser.
+      const blob = await (await fetch(image.uri)).blob();
+      form.append('image', blob, image.name);
+    } else {
+      form.append('image', image as unknown as Blob);
+    }
     return request('/tours/extract', { method: 'POST', body: form });
   },
 
