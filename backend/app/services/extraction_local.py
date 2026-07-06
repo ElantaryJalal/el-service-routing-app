@@ -19,9 +19,10 @@ import io
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+from functools import lru_cache
 
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -30,9 +31,15 @@ from app.services.store_catalog import match_store_in_text
 
 _PLZ = re.compile(r"\b(\d{5})\b")
 _SHORT_NUM = re.compile(r"\b(\d{1,3})\b")
-_KW = re.compile(r"\bKW\s*(\d{1,2})\b", re.IGNORECASE)
+_KW = re.compile(r"\b(?:KW|Kalenderwoche)\s*(\d{1,2})\b", re.IGNORECASE)
 _DATE = re.compile(r"\b(\d{2})\.(\d{2})\.(\d{4})\b")
 _EMPLOYEE = re.compile(r"Mitarbeiter[:\s]+([A-Za-zÄÖÜäöüß.\- ]{2,40})", re.IGNORECASE)
+_TEAM_LEAD = re.compile(
+    r"Teamleiter(?:\s*\([A-Z]\))?[:\s]+([A-Za-zÄÖÜäöüß.\- ]{2,40})", re.IGNORECASE
+)
+_TOUR_CUSTOMER = re.compile(
+    r"Kunde[:\s]+([A-Za-z0-9ÄÖÜäöüß./\- ]{2,60})", re.IGNORECASE
+)
 
 _SERVICE_MIN, _SERVICE_MAX = 30, 600
 
@@ -122,13 +129,84 @@ def _parse_tsv(data: dict) -> list[Word]:
     return words
 
 
-def _ocr_words(image_bytes: bytes, languages: str) -> list[Word]:
-    """OCR the image to positioned words. Isolated so tests can stub it."""
-    image = Image.open(io.BytesIO(image_bytes))
+def _deskew_angle(gray: Image.Image) -> float:
+    """Estimate the page's small skew angle (degrees) via projection profiles.
+
+    Text rows make the horizontal darkness profile spiky; the rotation that
+    maximizes that spikiness (variance) is the deskew angle. Runs on a
+    thumbnail, so it's cheap. Handles phone-photo skew of a few degrees, not
+    sideways pages.
+    """
+    thumb = gray.copy()
+    thumb.thumbnail((600, 600))
+    best_angle, best_var = 0.0, -1.0
+    for tenth in range(-30, 31, 5):  # -3.0° .. 3.0° in 0.5° steps
+        angle = tenth / 10
+        rotated = thumb.rotate(angle, fillcolor=255, resample=Image.BILINEAR)
+        # Per-row mean brightness via a 1px-wide box resize.
+        profile = list(rotated.resize((1, rotated.height), Image.BOX).getdata())
+        mean = sum(profile) / len(profile)
+        var = sum((v - mean) ** 2 for v in profile) / len(profile)
+        if var > best_var:
+            best_var, best_angle = var, angle
+    return best_angle
+
+
+def _preprocess(image_bytes: bytes) -> Image.Image:
+    """Clean up a phone photo for Tesseract.
+
+    Grayscale + autocontrast normalize dim/uneven lighting; deskew squares up
+    the rows (column parsing clusters words by y, so skew smears rows into
+    each other). Scaling is handled adaptively in ``_best_read``.
+    """
+    image = ImageOps.exif_transpose(Image.open(io.BytesIO(image_bytes)))
+    image = image.convert("L")
+    image = ImageOps.autocontrast(image, cutoff=1)
+    angle = _deskew_angle(image)
+    if abs(angle) >= 0.3:
+        image = image.rotate(angle, expand=True, fillcolor=255, resample=Image.BICUBIC)
+    return image
+
+
+def _sharpen(image: Image.Image) -> Image.Image:
+    return image.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+
+
+def _quality(words: list[Word]) -> int:
+    """How well a read went: count of confidently-recognized words."""
+    return sum(1 for w in words if w.conf >= 60)
+
+
+@lru_cache(maxsize=2)
+def _best_read(image_bytes: bytes, languages: str) -> tuple[Image.Image, tuple]:
+    """OCR at native size and 2×, keep the better read.
+
+    A dense plan scanned/photographed small (~10px glyphs) needs the 2× pass;
+    an adequately-sized image reads *worse* upscaled (interpolation smears
+    crisp glyphs). Measuring instead of guessing handles both. Cached so the
+    sparse header pass reuses the chosen geometry without re-deciding.
+    """
+    base = _preprocess(image_bytes)
+    image = _sharpen(base)
+    words = _tsv_words(image, languages)
+    if base.width < 2400:
+        scaled = _sharpen(base.resize((base.width * 2, base.height * 2), Image.LANCZOS))
+        scaled_words = _tsv_words(scaled, languages)
+        if _quality(scaled_words) > _quality(words):
+            image, words = scaled, scaled_words
+    return image, tuple(words)
+
+
+def _tsv_words(image: Image.Image, languages: str, config: str = "") -> list[Word]:
     data = pytesseract.image_to_data(
-        image, lang=languages, output_type=pytesseract.Output.DICT
+        image, lang=languages, config=config, output_type=pytesseract.Output.DICT
     )
     return _parse_tsv(data)
+
+
+def _ocr_words(image_bytes: bytes, languages: str) -> list[Word]:
+    """OCR the image to positioned words. Isolated so tests can stub it."""
+    return list(_best_read(image_bytes, languages)[1])
 
 
 def _ocr_words_sparse(image_bytes: bytes, languages: str) -> list[Word]:
@@ -137,38 +215,71 @@ def _ocr_words_sparse(image_bytes: bytes, languages: str) -> list[Word]:
     The default page segmentation sometimes swallows a header label whole
     (observed: "Aufgaben" missing while every neighbour read fine); sparse
     mode recovers such words. Only used to fill gaps in the header row.
-    Isolated so tests can stub it.
+    Isolated so tests can stub it. Runs on the image ``_best_read`` chose so
+    both passes see identical geometry.
     """
-    image = Image.open(io.BytesIO(image_bytes))
-    data = pytesseract.image_to_data(
-        image, lang=languages, config="--psm 11", output_type=pytesseract.Output.DICT
-    )
-    return _parse_tsv(data)
+    image, _ = _best_read(image_bytes, languages)
+    return _tsv_words(image, languages, config="--psm 11")
 
 
 def _rows(words: list[Word]) -> list[list[Word]]:
-    """Cluster words into visual rows by vertical position.
+    """Cluster words into visual rows by vertical overlap.
 
     Tesseract often segments table columns into separate blocks, so its own
-    line numbering can split one visual row — cluster on y instead.
+    line numbering can split one visual row. Center distance is too strict
+    the other way: cells in one row sit on slightly different baselines
+    (observed splitting real plan rows in half). A word belongs to a row when
+    its y-extent overlaps the row's by half the word's height.
     """
+
     if not words:
         return []
+    # Union-find on "same row": centers closer than 0.6× the pair's mean
+    # glyph height. Pairwise (not greedy-envelope) so cells whose baselines
+    # sit a little high or low still connect through their neighbours without
+    # the cluster creeping into the next table row. Abnormally tall boxes
+    # (OCR junk spanning two rows) would bridge rows, so they don't link —
+    # they're attached to the nearest finished row afterwards.
     heights = sorted(w.height for w in words)
-    tolerance = max(6.0, heights[len(heights) // 2] * 0.7)
+    median_height = heights[len(heights) // 2]
+    linkable = [w for w in words if w.height <= 1.4 * median_height]
+    outliers = [w for w in words if w.height > 1.4 * median_height]
 
-    rows: list[list[Word]] = []
-    current: list[Word] = []
-    current_y = 0.0
-    for word in sorted(words, key=lambda w: w.center_y):
-        if current and word.center_y - current_y > tolerance:
-            rows.append(sorted(current, key=lambda w: w.left))
-            current = []
-        if not current:
-            current_y = word.center_y
-        current.append(word)
-    rows.append(sorted(current, key=lambda w: w.left))
-    return rows
+    ordered = sorted(linkable, key=lambda w: w.center_y)
+    parent = list(range(len(ordered)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    max_height = max((w.height for w in ordered), default=0)
+    for i, first in enumerate(ordered):
+        for j in range(i + 1, len(ordered)):
+            second = ordered[j]
+            gap = second.center_y - first.center_y
+            if gap > 0.6 * (first.height + max_height) / 2:
+                break
+            if gap < 0.6 * (first.height + second.height) / 2:
+                parent[find(i)] = find(j)
+
+    clusters: dict[int, list[Word]] = {}
+    for i, word in enumerate(ordered):
+        clusters.setdefault(find(i), []).append(word)
+    rows = sorted(clusters.values(), key=lambda ws: ws[len(ws) // 2].center_y)
+
+    for word in outliers:
+        target = min(
+            rows,
+            key=lambda ws: abs(ws[len(ws) // 2].center_y - word.center_y),
+            default=None,
+        )
+        if target is not None:
+            target.append(word)
+        else:
+            rows.append([word])
+    return [sorted(ws, key=lambda w: w.left) for ws in rows]
 
 
 def _match_label(word: str) -> str | None:
@@ -184,6 +295,12 @@ def _match_label(word: str) -> str | None:
         if ratio > best:
             best, best_field = ratio, field
     return best_field if best >= 0.8 else None
+
+
+def _is_header_row(row: list[Word]) -> bool:
+    """True when a row reads as column labels rather than stop data."""
+    fields = {f for w in row if (f := _match_label(w.text)) is not None}
+    return len(fields) >= 3
 
 
 def _find_header(rows: list[list[Word]]) -> tuple[int, list[tuple[str, Word]]] | None:
@@ -234,31 +351,85 @@ def _augment_hits_sparse(
 def _column_starts(
     hits: list[tuple[str, Word]], data_rows: list[list[Word]], tolerance: float
 ) -> list[tuple[float, str]]:
-    """Each column's left x-origin, refined against the data rows.
+    """Each column's left x-origin, aligned to the data rows' own piles.
 
     Printed table cells are left-aligned, so data words pile up at each
-    column's origin. A pile near a header label (labels can be indented or
-    centered differently from their cells) pins the column start better than
-    the label itself does.
+    column's origin — but header labels are often *centered* over their
+    column, sitting well right of where the cells start. Trusting the labels
+    directly shifts every cell into its left neighbour. Instead, align the
+    label sequence to the pile sequence with an order-preserving minimum-cost
+    matching; a label with no plausible pile (sparse column) keeps its own
+    position.
     """
-    lefts = sorted(w.left for row in data_rows for w in row)
-    piles: list[list[int]] = []
-    for x in lefts:
-        if piles and x - piles[-1][-1] <= tolerance:
-            piles[-1].append(x)
-        else:
-            piles.append([x])
-    pile_starts = [min(pile) for pile in piles if len(pile) >= 2]
+    hits = sorted(hits, key=lambda h: h[1].left)
 
-    starts: list[tuple[float, str]] = []
-    for field, word in sorted(hits, key=lambda h: h[1].left):
-        anchored = min(
-            (s for s in pile_starts if abs(s - word.left) <= 3 * tolerance),
-            key=lambda s: abs(s - word.left),
-            default=None,
+    # Cluster data-word lefts into piles, tracking the whitespace gap before
+    # each word: a real column start repeats across rows AND sits after a
+    # sizeable gap; continuation words of multi-word cells ("NORD", "BEUCHA")
+    # pile up too, but only one space-width behind their neighbour.
+    entries: list[tuple[int, float]] = []  # (left, gap before word)
+    for row in data_rows:
+        prev_right: float | None = None
+        for word in row:
+            gap = float("inf") if prev_right is None else word.left - prev_right
+            entries.append((word.left, gap))
+            prev_right = word.left + word.width
+    entries.sort()
+    piles: list[list[tuple[int, float]]] = []
+    for left, gap in entries:
+        if piles and left - piles[-1][-1][0] <= tolerance:
+            piles[-1].append((left, gap))
+        else:
+            piles.append([(left, gap)])
+    min_support = max(2, len(data_rows) // 3)
+    pile_starts: list[int] = []
+    for pile in piles:
+        if len(pile) < min_support:
+            continue
+        gaps = sorted(g for _, g in pile)
+        if gaps[len(gaps) // 2] >= 2.5 * tolerance:  # median preceding gap
+            pile_starts.append(min(left for left, _ in pile))
+
+    # Monotone alignment: labels[i] -> pile or gap (keep label position).
+    # A pile left of its label is cheap (headers are often centered over
+    # left-aligned cells); right of it is suspect.
+    gap_cost = 12 * tolerance
+    n_labels, n_piles = len(hits), len(pile_starts)
+    inf = float("inf")
+    # cost[i][j]: labels[:i] placed considering piles[:j]
+    cost = [[inf] * (n_piles + 1) for _ in range(n_labels + 1)]
+    choice: dict[tuple[int, int], tuple[int, int, int | None]] = {}
+    cost[0] = [0.0] * (n_piles + 1)
+    for i in range(1, n_labels + 1):
+        label_x = hits[i - 1][1].left
+        for j in range(n_piles + 1):
+            best, prev = cost[i - 1][j] + gap_cost, (i - 1, j, None)
+            if j > 0 and cost[i][j - 1] < best:
+                best, prev = cost[i][j - 1], (i, j - 1, None)
+            if j > 0:
+                delta = label_x - pile_starts[j - 1]
+                distance = 0.3 * delta if delta >= 0 else -delta
+                assigned = cost[i - 1][j - 1] + distance
+                if assigned < best:
+                    best, prev = assigned, (i - 1, j - 1, j - 1)
+            cost[i][j] = best
+            choice[(i, j)] = prev
+
+    assignment: dict[int, int] = {}
+    i, j = n_labels, n_piles
+    while i > 0 or j > 0:
+        pi, pj, pile = choice.get((i, j), (0, 0, None))
+        if pile is not None:
+            assignment[i - 1] = pile
+        i, j = pi, pj
+
+    return [
+        (
+            float(pile_starts[assignment[k]]) if k in assignment else float(w.left),
+            field,
         )
-        starts.append((min(word.left, anchored) if anchored else word.left, field))
-    return starts
+        for k, (field, w) in enumerate(hits)
+    ]
 
 
 def _bucket_row(
@@ -307,7 +478,13 @@ def _row_stop(cells: dict[str, list[Word]]) -> ExtractedStop | None:
         return None
 
     date_match = _DATE.search(text.get("date", ""))
-    plz_match = _PLZ.search(text.get("postal_code", ""))
+    # A 5-digit token is unambiguously the PLZ, so when column boundaries are
+    # slightly off, rescue it from the neighbouring address cells.
+    plz_match = (
+        _PLZ.search(text.get("postal_code", ""))
+        or _PLZ.search(text.get("street", ""))
+        or _PLZ.search(text.get("city", ""))
+    )
     minutes = _find_service_minutes(text.get("service_minutes", ""))
     tasks = [
         part.strip()
@@ -387,8 +564,10 @@ def extract_tour_local(
     joined = "\n".join(" ".join(w.text for w in row) for row in rows)
 
     kw = _KW.search(joined)
-    dates = _DATE.findall(joined)
+    dates = sorted(_iso_date(d) for d in _DATE.findall(joined))
     employee = _EMPLOYEE.search(joined)
+    team_lead = _TEAM_LEAD.search(joined)
+    tour_customer = _TOUR_CUSTOMER.search(joined)
 
     header = _find_header(rows)
     if header is not None:
@@ -405,16 +584,22 @@ def extract_tour_local(
         stops = [
             stop
             for row in data_rows
-            if (stop := _row_stop(_bucket_row(row, starts, tolerance))) is not None
+            # A long plan may repeat its header (second table section on the
+            # same page); a repeat is a divider, not a stop row.
+            if not _is_header_row(row)
+            and (stop := _row_stop(_bucket_row(row, starts, tolerance))) is not None
         ]
     else:
         stops = _fallback_stops(db, rows)
 
     return ExtractedTour(
-        customer=None,
+        customer=tour_customer.group(1).strip() if tour_customer else None,
         calendar_week=int(kw.group(1)) if kw else None,
-        date_from=_iso_date(dates[0]) if dates else None,
-        date_to=_iso_date(dates[1]) if len(dates) > 1 else None,
+        # min/max over every date on the page beats trusting the meta line's
+        # OCR: the stop rows themselves carry the week's range.
+        date_from=dates[0] if dates else None,
+        date_to=dates[-1] if len(dates) > 1 else None,
+        team_lead=team_lead.group(1).strip() if team_lead else None,
         employee=employee.group(1).strip() if employee else None,
         stops=stops,
     )
