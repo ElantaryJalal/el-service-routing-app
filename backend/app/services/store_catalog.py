@@ -46,11 +46,23 @@ def _distinctive_tokens(name: str) -> list[str]:
 
 
 def _name_similarity(query: str, store: Store) -> float:
-    """Best normalized similarity of the query against a store's names."""
-    candidates = [store.name, *(store.aliases or [])]
-    return max(
-        SequenceMatcher(None, query, _normalize(cand)).ratio() for cand in candidates
-    )
+    """Best normalized similarity of the query against a store's names.
+
+    Compared on distinctive tokens when both sides have them: chain names
+    share a long generic prefix ("Aldi …"), which otherwise inflates the
+    similarity of two entirely different branches (e.g. "Aldi Zwickau" vs
+    "Aldi Lindenau") past the match threshold.
+    """
+    query_distinct = " ".join(_distinctive_tokens(query))
+    best = 0.0
+    for cand in [store.name, *(store.aliases or [])]:
+        cand_distinct = " ".join(_distinctive_tokens(cand))
+        if query_distinct and cand_distinct:
+            ratio = SequenceMatcher(None, query_distinct, cand_distinct).ratio()
+        else:
+            ratio = SequenceMatcher(None, query, _normalize(cand)).ratio()
+        best = max(best, ratio)
+    return best
 
 
 def match_store(
@@ -65,6 +77,10 @@ def match_store(
 
     Scores each store by normalized name similarity and adds a locality boost:
     +0.3 when the postal code matches exactly, else +0.1 when the city matches.
+    A postal code that *contradicts* the store's (each store's PLZ is unique)
+    is penalized -0.3: a similar chain name with a different PLZ is almost
+    certainly a different branch, and a false match would silently pin the
+    stop to the wrong store's coordinate.
     """
     query = _normalize(name)
     if not query:
@@ -77,8 +93,11 @@ def match_store(
     best_score = 0.0
     for store in db.scalars(select(Store)).all():
         score = _name_similarity(query, store)
-        if plz and store.postal_code and plz == store.postal_code.strip():
-            score += 0.3
+        if plz and store.postal_code:
+            if plz == store.postal_code.strip():
+                score += 0.3
+            else:
+                score -= 0.3
         elif city_norm and _normalize(store.city) == city_norm:
             score += 0.1
         if score > best_score:

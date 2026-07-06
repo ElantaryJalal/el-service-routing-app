@@ -12,8 +12,11 @@ class Settings(BaseSettings):
         "postgresql+psycopg://el_service:el_service@localhost:5432/el_service"
     )
     # Extraction reader: "local" = on-device Tesseract OCR (offline, no API),
+    # "ollama" = free local vision model via an Ollama server (slow on CPU but
+    # reads with context, far more accurate than Tesseract on photos),
     # "anthropic" = vision model via the Messages API. The store catalog resolves
-    # the read either way, so local OCR is enough when stores are in the catalog.
+    # the read either way, so a cheap/imperfect reader is acceptable when
+    # stores are in the catalog.
     extraction_provider: str = "local"
     # Tesseract language(s), e.g. "eng" or "deu+eng" if the German pack is
     # installed (apt-get install tesseract-ocr-deu). eng handles German store
@@ -23,6 +26,11 @@ class Settings(BaseSettings):
     # Vision model used when extraction_provider="anthropic". Cheap is fine:
     # extraction runs ~weekly per tour and the catalog fills the details.
     extraction_model: str = "claude-haiku-4-5"
+    # Ollama server + vision model used when extraction_provider="ollama".
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen2.5vl:3b"
+    # CPU inference on a big plan takes minutes; generous by design.
+    ollama_timeout_seconds: int = 1800
     nominatim_url: str = "https://nominatim.openstreetmap.org"
     overpass_url: str = "https://overpass-api.de/api/interpreter"
     osrm_url: str = "http://localhost:5000"

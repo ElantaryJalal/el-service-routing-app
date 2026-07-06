@@ -16,6 +16,7 @@ from app.schemas.optimise import OptimiseResult
 from app.schemas.stop import CommitResult, StopDetail
 from app.services.extraction import extract_tour, normalize_media_type
 from app.services.extraction_local import extract_tour_local
+from app.services.extraction_ollama import extract_tour_ollama
 from app.services.geocoding import geocode_address
 from app.services.opening_hours import fetch_opening_hours
 from app.services.optimiser import optimise_tour
@@ -93,6 +94,8 @@ def extract(
     try:
         if settings.extraction_provider == "local":
             parsed = extract_tour_local(db, data, media_type)
+        elif settings.extraction_provider == "ollama":
+            parsed = extract_tour_ollama(data, media_type)
         else:
             parsed = extract_tour(data, media_type)
     except Exception as exc:  # noqa: BLE001 — surface any extraction failure as 502
