@@ -22,12 +22,30 @@ quality path.
 from __future__ import annotations
 
 import base64
+from io import BytesIO
 
 import httpx
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.services.extraction import ExtractedStop, ExtractedTour
+
+# Longest image edge sent to the model. Prefill cost scales with pixel count,
+# and a raw phone photo (~12 MP) took the CPU past the request timeout where
+# a ~1 MP test image finished in minutes. 2048 px keeps a photographed A4
+# plan's table text legible while capping the image-token budget.
+_MAX_IMAGE_EDGE = 2048
+
+
+def _prepare_image(image_bytes: bytes) -> bytes:
+    """Normalize orientation (phone photos rotate via EXIF) and downscale."""
+    image = ImageOps.exif_transpose(Image.open(BytesIO(image_bytes)))
+    image.thumbnail((_MAX_IMAGE_EDGE, _MAX_IMAGE_EDGE), Image.LANCZOS)
+    buffer = BytesIO()
+    image.convert("RGB").save(buffer, format="PNG")
+    return buffer.getvalue()
+
 
 _PROMPT = (
     "You extract structured data from a photographed field-service tour plan "
@@ -103,7 +121,11 @@ def extract_tour_ollama(image_bytes: bytes, media_type: str) -> ExtractedTour:
             {
                 "role": "user",
                 "content": _PROMPT,
-                "images": [base64.standard_b64encode(image_bytes).decode("ascii")],
+                "images": [
+                    base64.standard_b64encode(_prepare_image(image_bytes)).decode(
+                        "ascii"
+                    )
+                ],
             }
         ],
     }
