@@ -22,6 +22,8 @@ export interface OptimisedStop {
   postal_code: string | null;
   city: string | null;
   tasks: string[];
+  /** Free-text instructions from the plan's remark column. */
+  remarks: string | null;
   lat: number;
   lng: number;
   service_minutes: number | null;
@@ -140,6 +142,7 @@ export function composeOptimisedTour(
           postal_code: d?.postal_code ?? null,
           city: d?.city ?? null,
           tasks: tasksToChips(d?.tasks ?? null),
+          remarks: d?.remarks ?? null,
           lat: d?.lat ?? 0,
           lng: d?.lng ?? 0,
           service_minutes: d?.service_minutes ?? null,

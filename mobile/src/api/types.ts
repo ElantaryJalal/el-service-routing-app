@@ -4,6 +4,76 @@
  */
 
 export interface paths {
+    "/tours/extract": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Extract
+         * @description Extract a draft tour from a photographed plan (vision) and geocode it.
+         *
+         *     Runs Claude vision extraction, persists a draft tour + stops (status
+         *     ``draft``/``unconfirmed``) preserving row order, geocodes each stop
+         *     best-effort (cached Nominatim), and returns the draft for the Confirm
+         *     screen. Runs in a threadpool (sync def), so the multi-second model call
+         *     doesn't block the event loop.
+         */
+        post: operations["extract_tours_extract_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tours/{tour_id}/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Draft
+         * @description The current draft (pre-commit) tour, for a reloaded/deep-linked Confirm.
+         */
+        get: operations["get_draft_tours__tour_id__draft_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tours/{tour_id}/draft/stops/{stop_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Draft Stop
+         * @description Apply the user's corrections to one draft stop.
+         *
+         *     Only explicitly-set fields change. Editing a field clears its
+         *     low-confidence flag; changing any address field re-geocodes the stop so the
+         *     map stays correct after corrections.
+         */
+        patch: operations["patch_draft_stop_tours__tour_id__draft_stops__stop_id__patch"];
+        trace?: never;
+    };
     "/tours/{tour_id}/stops": {
         parameters: {
             query?: never;
@@ -110,6 +180,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_extract_tours_extract_post */
+        Body_extract_tours_extract_post: {
+            /** Image */
+            image: string;
+        };
         /** CommitResult */
         CommitResult: {
             /** Tour Id */
@@ -150,6 +225,50 @@ export interface components {
             day_end: string | null;
             /** Near Limit */
             near_limit: boolean;
+        };
+        /** DraftStop */
+        DraftStop: {
+            /** Id */
+            id: number;
+            /** Street */
+            street: string | null;
+            /** Postal Code */
+            postal_code: string | null;
+            /** City */
+            city: string | null;
+            /** Order No */
+            order_no: string | null;
+            /** Tasks */
+            tasks: string | null;
+            /** Remarks */
+            remarks: string | null;
+            /** Service Minutes */
+            service_minutes: number | null;
+            /** Confidence */
+            confidence: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * DraftStopUpdate
+         * @description PATCH body for a draft stop — only explicitly-set fields are applied.
+         *
+         *     A field sent as ``null`` clears it; the endpoint distinguishes that from an
+         *     omitted field via ``model_fields_set``.
+         */
+        DraftStopUpdate: {
+            /** Street */
+            street?: string | null;
+            /** Postal Code */
+            postal_code?: string | null;
+            /** City */
+            city?: string | null;
+            /** Order No */
+            order_no?: string | null;
+            /** Tasks */
+            tasks?: string | null;
+            /** Service Minutes */
+            service_minutes?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -201,6 +320,8 @@ export interface components {
             city: string | null;
             /** Tasks */
             tasks: string | null;
+            /** Remarks */
+            remarks: string | null;
             /** Lat */
             lat: number | null;
             /** Lng */
@@ -236,6 +357,13 @@ export interface components {
             /** Service Minutes */
             service_minutes?: number | null;
         };
+        /** TourDraft */
+        TourDraft: {
+            /** Tour Id */
+            tour_id: number;
+            /** Stops */
+            stops: components["schemas"]["DraftStop"][];
+        };
         /** UnassignedStop */
         UnassignedStop: {
             /** Stop Id */
@@ -265,6 +393,106 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    extract_tours_extract_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_extract_tours_extract_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_draft_tours__tour_id__draft_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_draft_stop_tours__tour_id__draft_stops__stop_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftStopUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftStop"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_stops_tours__tour_id__stops_get: {
         parameters: {
             query?: never;

@@ -335,6 +335,8 @@ function StopDetailCard({
         <Text style={styles.urgentHint}>Tight — arrives close to closing time.</Text>
       )}
 
+      {stop.remarks && <Text style={styles.remarks}>{stop.remarks}</Text>}
+
       {stop.tasks.length > 0 && (
         <View style={styles.taskChips}>
           {stop.tasks.map((t, i) => (
@@ -439,6 +441,15 @@ const styles = StyleSheet.create({
   etaValue: { fontSize: 16, fontWeight: '700', color: '#222' },
   etaValueUrgent: { color: '#b00020' },
   urgentHint: { color: '#b00020', fontSize: 13, fontWeight: '600' },
+  remarks: {
+    backgroundColor: '#fff8e8',
+    borderLeftWidth: 3,
+    borderLeftColor: '#f6a609',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    fontSize: 13,
+    color: '#5c4a12',
+  },
   taskChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   taskChip: { backgroundColor: '#eef2f7', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10 },
   taskChipText: { fontSize: 13, color: '#334' },

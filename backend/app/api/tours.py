@@ -58,6 +58,7 @@ def _draft_stop(stop: Stop) -> DraftStop:
         city=stop.city,
         order_no=stop.order_no,
         tasks=", ".join(labels) if labels else None,
+        remarks=stop.remarks_raw,
         service_minutes=stop.service_minutes,
         confidence=confidence,
     )
@@ -274,6 +275,7 @@ def list_stops(
                 postal_code=stop.postal_code,
                 city=stop.city,
                 tasks=", ".join(labels) if labels else None,
+                remarks=stop.remarks_raw,
                 lat=lat,
                 lng=lon,
             )

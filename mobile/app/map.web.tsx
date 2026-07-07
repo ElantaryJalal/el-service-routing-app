@@ -92,6 +92,9 @@ function popupHtml(s: OptimisedStop): string {
         `<span style="background:#eef2f7;border-radius:10px;padding:1px 7px;margin:1px;display:inline-block;font-size:11px">${escapeHtml(t)}</span>`,
     )
     .join(' ');
+  const remarks = s.remarks
+    ? `<div style="background:#fff8e8;border-left:3px solid #f6a609;padding:3px 7px;margin:4px 0;font-size:12px">${escapeHtml(s.remarks)}</div>`
+    : '';
   const nav = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
   const etaStyle = urgent ? 'color:#b00020;font-weight:700' : 'font-weight:600';
   return `
@@ -105,6 +108,7 @@ function popupHtml(s: OptimisedStop): string {
         ${s.service_minutes != null ? ` · ${s.service_minutes} min` : ''}
       </div>
       ${urgent ? '<div style="color:#b00020;font-size:11px;font-weight:600">Tight — arrives close to closing.</div>' : ''}
+      ${remarks}
       <div style="margin:4px 0">${chips}</div>
       <a href="${nav}" target="_blank" rel="noopener"
          style="display:inline-block;background:#1f6feb;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>

@@ -53,6 +53,8 @@ export type DraftConfidence = Partial<Record<keyof DraftStopFields, number>>;
 
 export interface DraftStop extends DraftStopFields {
   id: number;
+  /** Free-text instructions from the plan's remark column (read-only). */
+  remarks: string | null;
   confidence: DraftConfidence;
 }
 

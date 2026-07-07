@@ -92,6 +92,13 @@ export function DraftStopCard({ index, stop, onPatch }: Props) {
     <View style={styles.card}>
       <Text style={styles.cardTitle}>Stop {index + 1}</Text>
 
+      {stop.remarks && (
+        <View style={styles.remarksBox}>
+          <Text style={styles.remarksLabel}>Remark on plan</Text>
+          <Text style={styles.remarksText}>{stop.remarks}</Text>
+        </View>
+      )}
+
       {row('Street', 'street', { placeholder: 'Street and number' })}
       <View style={styles.pair}>
         <View style={styles.pairItem}>{row('Postal code', 'postal_code', { keyboard: 'numeric' })}</View>
@@ -136,6 +143,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#333' },
+  remarksBox: {
+    backgroundColor: '#fff8e8',
+    borderLeftWidth: 3,
+    borderLeftColor: AMBER,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 2,
+  },
+  remarksLabel: { fontSize: 11, fontWeight: '700', color: '#b8860b', textTransform: 'uppercase' },
+  remarksText: { fontSize: 14, color: '#5c4a12' },
   field: { gap: 4 },
   label: { fontSize: 13, color: '#666', fontWeight: '600' },
   input: {

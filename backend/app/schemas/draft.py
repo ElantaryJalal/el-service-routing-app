@@ -18,6 +18,10 @@ class DraftStop(BaseModel):
     city: str | None
     order_no: str | None
     tasks: str | None
+    # Free-text instructions from the plan's remark column ("Nachbessern",
+    # "Austausch 15 Werbeabdeckungen …") — a stop's work may be stated here
+    # instead of task codes, so the Confirm screen must show it.
+    remarks: str | None
     service_minutes: int | None
     # field name -> confidence in [0, 1]; absent = clearly printed.
     confidence: dict[str, float]

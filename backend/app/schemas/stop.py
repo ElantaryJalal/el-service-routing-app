@@ -35,6 +35,9 @@ class StopDetail(StopRead):
     postal_code: str | None
     city: str | None
     tasks: str | None
+    # Free-text instructions from the plan's remark column; the work for a
+    # stop may be stated here instead of task codes.
+    remarks: str | None
     lat: float | None
     lng: float | None
 
