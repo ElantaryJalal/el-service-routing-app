@@ -22,6 +22,7 @@ quality path.
 from __future__ import annotations
 
 import base64
+import re
 from io import BytesIO
 
 import httpx
@@ -53,11 +54,16 @@ _PROMPT = (
     "handwritten annotations, listing German supermarkets to service across a "
     "week. The page may contain more than one table section; read EVERY stop "
     "row of every section in top-to-bottom order and return one stops[] entry "
-    "per row — do not skip, merge, or invent rows. Return ISO dates "
-    "(YYYY-MM-DD). postal_code is the 5-digit German PLZ column. tasks is the "
-    "list of task codes/labels for the stop (e.g. EKW, KÖRBE); when the "
-    "remark column holds free text instead, put it in remarks, and keep "
-    "remarks short. service_minutes is the on-site time in minutes if noted, "
+    "per row — do not skip, merge, or invent rows. Adjacent rows can look "
+    "almost identical (same Ort, same Bemerkung); they are distinct stops, "
+    "return each printed row separately. The stop fields are named after the "
+    "printed column headers — fill each field from its own column only: "
+    "datum (as ISO YYYY-MM-DD), tag, kunde, auftrag (Auftrag/VST), ort, "
+    "strasse (Straße: street name and number), plz (5-digit postal code), "
+    "bemerkung. bemerkung is the verbatim contents of that row's Bemerkung "
+    "cell — the RIGHTMOST column, after the PLZ — copied exactly as printed; "
+    "rows differ, so transcribe each cell on its own and use null when the "
+    "cell is blank. service_minutes is the on-site time in minutes if noted, "
     "else null. Use null for any value that is not present. The page header "
     "usually states tour-level fields: Kunde (customer), KW (calendar week), "
     "Zeitraum (date_from/date_to), Teamleiter, Mitarbeiter, Fahrzeug. Fix "
@@ -76,15 +82,22 @@ class _WireStop(BaseModel):
     optional fields lazily omits them and returns near-empty rows.
     """
 
-    date: str | None
-    weekday: str | None
-    customer: str | None
-    order_no: str | None
-    street: str | None
-    postal_code: str | None
-    city: str | None
-    tasks: list[str]
-    remarks: str | None
+    # Field names mirror the printed German column headers (Datum, Tag,
+    # Kunde, Auftrag/VST, Ort, Straße, PLZ, Bemerkung). With English names
+    # the model cross-wired columns — e.g. the Ort value landed in both
+    # ``street`` and ``city``; header-identical names anchor each field.
+    datum: str | None
+    tag: str | None
+    kunde: str | None
+    auftrag: str | None
+    ort: str | None
+    strasse: str | None
+    plz: str | None
+    # Verbatim Bemerkung cell. Asking the model to *classify* the cell into
+    # tasks vs. remarks failed: a 3B model pattern-completes the dominant
+    # task list onto every row (and dropped free-text remarks entirely).
+    # Transcription it does reliably; ``_split_remark_cell`` does the split.
+    bemerkung: str | None
     service_minutes: int | None
 
 
@@ -101,6 +114,39 @@ class _WireTour(BaseModel):
     employee: str | None
     vehicle: str | None
     stops: list[_WireStop] = Field(default_factory=list)
+
+
+# A task code as printed on the plans: uppercase (umlauts/ß allowed after the
+# first letter), digits, hyphens, spaces — e.g. EKW-B, KÖRBE SAMMELSTATION.
+# Free text ("Nachbessern", "Austausch 15 Werbeabdeckungen …") contains
+# lowercase letters and fails this, landing in remarks instead.
+_TASK_CODE = re.compile(r"^[A-ZÄÖÜ][A-ZÄÖÜß0-9 \-]{0,30}$")
+
+
+def _split_remark_cell(cell: str | None) -> tuple[list[str], str | None]:
+    """Split a verbatim Bemerkung cell into (tasks, remarks).
+
+    Cells hold either a slash-separated list of task codes
+    ("EKW / EKW-B / KÖRBE / …") or free text. Task lists are printed in
+    capitals, so the cell must be mostly uppercase; the per-segment check is
+    then case-insensitive because the model re-cases codes ("Körbe" for
+    KÖRBE). Free text — even slash-separated like "Zufahrt über Hof /
+    Schlüssel beim Marktleiter" — stays a remark via its lowercase share.
+    """
+    if cell is None or not cell.strip():
+        return [], None
+    letters = [char for char in cell if char.isalpha()]
+    upper_ratio = (
+        sum(char.isupper() for char in letters) / len(letters) if letters else 0.0
+    )
+    parts = [part.strip() for part in cell.split("/") if part.strip()]
+    if (
+        parts
+        and upper_ratio >= 0.7
+        and all(_TASK_CODE.match(part.upper()) for part in parts)
+    ):
+        return parts, None
+    return [], cell.strip()
 
 
 def extract_tour_ollama(image_bytes: bytes, media_type: str) -> ExtractedTour:
@@ -137,7 +183,21 @@ def extract_tour_ollama(image_bytes: bytes, media_type: str) -> ExtractedTour:
     response.raise_for_status()
     content = response.json()["message"]["content"]
     wire = _WireTour.model_validate_json(content)
-    return ExtractedTour(
-        **wire.model_dump(exclude={"stops"}),
-        stops=[ExtractedStop(**stop.model_dump()) for stop in wire.stops],
-    )
+    stops = []
+    for stop in wire.stops:
+        tasks, remarks = _split_remark_cell(stop.bemerkung)
+        stops.append(
+            ExtractedStop(
+                date=stop.datum,
+                weekday=stop.tag,
+                customer=stop.kunde,
+                order_no=stop.auftrag,
+                street=stop.strasse,
+                postal_code=stop.plz,
+                city=stop.ort,
+                tasks=tasks,
+                remarks=remarks,
+                service_minutes=stop.service_minutes,
+            )
+        )
+    return ExtractedTour(**wire.model_dump(exclude={"stops"}), stops=stops)
