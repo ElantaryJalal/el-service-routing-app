@@ -5,8 +5,11 @@ For now this exposes a health check that also verifies the database connection
 and that PostGIS is available.
 """
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 from app.api import feedback_router, stops_router, stores_router, tours_router
@@ -27,6 +30,11 @@ app.include_router(tours_router)
 app.include_router(stops_router)
 app.include_router(stores_router)
 app.include_router(feedback_router)
+
+# Uploaded visit-feedback photos; photo_path values are relative URLs under
+# this mount ("media/feedback/<uuid>.jpg").
+Path(settings.media_dir).mkdir(parents=True, exist_ok=True)
+app.mount("/media", StaticFiles(directory=settings.media_dir), name="media")
 
 
 @app.get("/health")

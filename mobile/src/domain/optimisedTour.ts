@@ -35,6 +35,8 @@ export interface OptimisedStop {
   store_id: number | null;
   /** False = the completion sheet should ask for the store's attributes. */
   store_attributes_complete: boolean | null;
+  /** Past visit-feedback notes for the store ("N past notes" indicator). */
+  store_feedback_count: number;
 }
 
 export interface OptimisedDay {
@@ -159,6 +161,7 @@ export function composeOptimisedTour(
           completed_at: d?.completed_at ?? null,
           store_id: d?.store_id ?? null,
           store_attributes_complete: d?.store_attributes_complete ?? null,
+          store_feedback_count: d?.store_feedback_count ?? 0,
         };
       }),
   }));
@@ -217,6 +220,27 @@ export function setStoreAttributesComplete(
       ...day,
       stops: day.stops.map((s) =>
         s.store_id === storeId ? { ...s, store_attributes_complete: complete } : s,
+      ),
+    })),
+  };
+}
+
+/**
+ * A copy of the tour with the store's past-notes count bumped, so the "N past
+ * notes" indicator reflects feedback sent this session without a refetch.
+ */
+export function bumpStoreFeedbackCount(
+  tour: OptimisedTour,
+  storeId: number,
+): OptimisedTour {
+  return {
+    ...tour,
+    days: tour.days.map((day) => ({
+      ...day,
+      stops: day.stops.map((s) =>
+        s.store_id === storeId
+          ? { ...s, store_feedback_count: s.store_feedback_count + 1 }
+          : s,
       ),
     })),
   };

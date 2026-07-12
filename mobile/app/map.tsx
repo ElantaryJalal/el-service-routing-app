@@ -21,7 +21,9 @@ import {
   type CompletionSync,
 } from '../src/components/CompletionSheet';
 import { DateModeControl } from '../src/components/DateModeControl';
+import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
 import {
+  bumpStoreFeedbackCount,
   completionProgress,
   composeOptimisedTour,
   dayColor,
@@ -31,8 +33,9 @@ import {
   type OptimisedStop,
   type OptimisedTour,
 } from '../src/domain/optimisedTour';
-import { mutationQueue } from '../src/state/mutationQueue';
+import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
+import { useOutboxStatus } from '../src/state/useOutboxStatus';
 
 /** Marker colour for stops already serviced (day colour otherwise). */
 const COMPLETED_GREY = '#9aa0a6';
@@ -92,6 +95,11 @@ export default function MapScreen() {
     stop: OptimisedStop;
     sync: CompletionSync;
   } | null>(null);
+  const [history, setHistory] = useState<{
+    storeId: number;
+    title: string;
+  } | null>(null);
+  const outboxStatus = useOutboxStatus();
 
   /** Apply a local tour change and persist it to the offline cache. */
   function updateTour(fn: (t: OptimisedTour) => OptimisedTour) {
@@ -109,9 +117,9 @@ export default function MapScreen() {
     setSelected(null);
     setSheet({ stop, sync: 'pending' });
     try {
-      const outcome = await mutationQueue.run({
+      const outcome = await outbox.enqueue({
         kind: 'complete',
-        stopId: stop.stop_id,
+        payload: { stop_id: stop.stop_id, completed: true },
       });
       setSheet((s) =>
         s && s.stop.stop_id === stop.stop_id ? { ...s, sync: outcome } : s,
@@ -130,7 +138,10 @@ export default function MapScreen() {
     updateTour((t) => setStopCompletion(t, stop.stop_id, null));
     setSelected(null);
     try {
-      await mutationQueue.run({ kind: 'uncomplete', stopId: stop.stop_id });
+      await outbox.enqueue({
+        kind: 'complete',
+        payload: { stop_id: stop.stop_id, completed: false },
+      });
     } catch (err) {
       updateTour((t) => setStopCompletion(t, stop.stop_id, stop.completed_at));
       const message = err instanceof ApiError ? err.message : String(err);
@@ -173,9 +184,9 @@ export default function MapScreen() {
       // network — otherwise a re-optimised plan never reaches the screen.
       const cached = await tourCache.load(tourId);
       if (cached && alive) setLoad({ state: 'ready', tour: cached });
-      // Replay any completions/feedback recorded offline BEFORE refetching,
-      // so the fresh data already reflects them.
-      await mutationQueue.flush().catch(() => {});
+      // Replay any writes recorded offline BEFORE refetching, so the fresh
+      // data already reflects them.
+      await outbox.flush().catch(() => {});
       try {
         const [result, stops] = await Promise.all([
           api.optimiseTour(tourId),
@@ -286,6 +297,8 @@ export default function MapScreen() {
                     : dayColor(s.dayIndex),
                 },
                 s.completed_at !== null && styles.pinCompleted,
+                // Amber ring: this stop has writes not yet on the server.
+                outboxStatus.pendingStopIds.has(s.stop_id) && styles.pinPendingSync,
               ]}
             >
               <Text style={styles.pinText}>
@@ -331,13 +344,23 @@ export default function MapScreen() {
             busy={modeBusy}
             onChange={changeDateMode}
           />
-          {progress.total > 0 && (
-            <View style={styles.progressPill}>
-              <Text style={styles.progressText}>
-                {progress.done} of {progress.total} done
-              </Text>
-            </View>
-          )}
+          <View style={styles.pillColumn}>
+            {progress.total > 0 && (
+              <View style={styles.progressPill}>
+                <Text style={styles.progressText}>
+                  {progress.done} of {progress.total} done
+                </Text>
+              </View>
+            )}
+            {outboxStatus.pending > 0 && (
+              <View style={styles.syncPill}>
+                <Text style={styles.syncPillText}>
+                  ⇅ {outboxStatus.pending} change
+                  {outboxStatus.pending === 1 ? '' : 's'} pending sync
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
@@ -345,10 +368,18 @@ export default function MapScreen() {
       {selected && (
         <StopDetailCard
           stop={selected}
+          pendingSync={outboxStatus.pendingStopIds.has(selected.stop_id)}
           onClose={() => setSelected(null)}
           bottomInset={insets.bottom}
           onMarkDone={() => markDone(selected)}
           onMarkNotDone={() => markNotDone(selected)}
+          onShowHistory={() =>
+            selected.store_id !== null &&
+            setHistory({
+              storeId: selected.store_id,
+              title: selected.customer ?? `Stop ${selected.stop_id}`,
+            })
+          }
         />
       )}
 
@@ -361,6 +392,19 @@ export default function MapScreen() {
           onAttributesSaved={(storeId) =>
             updateTour((t) => setStoreAttributesComplete(t, storeId, true))
           }
+          onFeedbackSent={(s) =>
+            s.store_id !== null &&
+            updateTour((t) => bumpStoreFeedbackCount(t, s.store_id!))
+          }
+        />
+      )}
+
+      {/* Read-only visit-feedback history for the tapped stop's store */}
+      {history && (
+        <FeedbackHistorySheet
+          storeId={history.storeId}
+          title={history.title}
+          onClose={() => setHistory(null)}
         />
       )}
 
@@ -408,16 +452,20 @@ function Chip({
 
 function StopDetailCard({
   stop,
+  pendingSync,
   onClose,
   bottomInset,
   onMarkDone,
   onMarkNotDone,
+  onShowHistory,
 }: {
   stop: OptimisedStop;
+  pendingSync: boolean;
   onClose: () => void;
   bottomInset: number;
   onMarkDone: () => void;
   onMarkNotDone: () => void;
+  onShowHistory: () => void;
 }) {
   const urgent = etaNearClosing(stop.eta, stop.closing_time);
   const address = [
@@ -458,6 +506,19 @@ function StopDetailCard({
             {formatDay(stop.assigned_day)} · #{stop.sequence}
           </Text>
         </View>
+        {stop.store_id !== null && stop.store_feedback_count > 0 && (
+          <Pressable style={styles.notesBadge} onPress={onShowHistory}>
+            <Text style={styles.notesBadgeText}>
+              🗒 {stop.store_feedback_count} past note
+              {stop.store_feedback_count === 1 ? '' : 's'}
+            </Text>
+          </Pressable>
+        )}
+        {pendingSync && (
+          <View style={styles.syncBadge}>
+            <Text style={styles.syncBadgeText}>⇅ not yet synced</Text>
+          </View>
+        )}
       </View>
 
       <View style={[styles.etaRow, urgent && styles.etaRowUrgent]}>
@@ -522,6 +583,28 @@ const styles = StyleSheet.create({
   },
   pinText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   pinCompleted: { opacity: 0.7 },
+  pinPendingSync: { borderColor: '#f6a609' },
+
+  pillColumn: { gap: 6, alignItems: 'flex-end' },
+  syncPill: {
+    backgroundColor: '#fff8e8',
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#f0b429',
+    elevation: 2,
+  },
+  syncPillText: { fontWeight: '700', color: '#8a6d00', fontSize: 13 },
+  syncBadge: {
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff8e8',
+    borderWidth: 1,
+    borderColor: '#f0b429',
+  },
+  syncBadgeText: { color: '#8a6d00', fontWeight: '600', fontSize: 13 },
 
   controlRow: {
     flexDirection: 'row',
@@ -592,9 +675,16 @@ const styles = StyleSheet.create({
   detailTitle: { fontSize: 18, fontWeight: '700' },
   detailAddress: { fontSize: 14, color: '#666', marginTop: 2 },
   close: { fontSize: 18, color: '#999', paddingHorizontal: 4 },
-  metaRow: { flexDirection: 'row', gap: 8 },
+  metaRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   dayBadge: { borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10 },
   dayBadgeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  notesBadge: {
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    backgroundColor: '#eef2f7',
+  },
+  notesBadgeText: { color: '#1f6feb', fontWeight: '600', fontSize: 13 },
   etaRow: {
     flexDirection: 'row',
     alignItems: 'center',

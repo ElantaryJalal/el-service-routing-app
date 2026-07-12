@@ -162,6 +162,60 @@ def test_list_stops_carries_store_attribute_state(seeded):
     assert stop["store_attributes_complete"] is True
 
 
+def test_photo_upload_and_store_history(seeded):
+    store_id, tour_id, stop_id = seeded
+
+    up = client.post(
+        "/feedback/photos",
+        files={"image": ("visit.png", b"not-really-a-png", "image/png")},
+    )
+    assert up.status_code == 200
+    path = up.json()["photo_path"]
+    assert path.startswith("media/feedback/") and path.endswith(".png")
+
+    # The uploaded file is served back under the /media mount.
+    assert client.get(f"/{path}").status_code == 200
+
+    # Non-image uploads are rejected.
+    bad = client.post(
+        "/feedback/photos", files={"image": ("x.pdf", b"%PDF", "application/pdf")}
+    )
+    assert bad.status_code == 415
+
+    # Attach the photo to one feedback, then add a later one without.
+    first = client.post(
+        "/feedback",
+        json={
+            "stop_id": stop_id,
+            "client_uuid": str(uuid.uuid4()),
+            "tags": ["other"],
+            "note": "Foto dabei",
+            "photo_path": path,
+        },
+    )
+    assert first.status_code == 201
+    second = client.post(
+        "/feedback",
+        json={
+            "stop_id": stop_id,
+            "client_uuid": str(uuid.uuid4()),
+            "note": "später",
+        },
+    )
+    assert second.status_code == 201
+
+    # Store history is newest first and carries the photo path.
+    rows = client.get(f"/stores/{store_id}/feedback").json()
+    assert [r["note"] for r in rows] == ["später", "Foto dabei"]
+    assert rows[1]["photo_path"] == path
+
+    assert client.get("/stores/999999/feedback").status_code == 404
+
+    # The stop card indicator count comes from list_stops.
+    [stop] = client.get(f"/tours/{tour_id}/stops").json()
+    assert stop["store_feedback_count"] == 2
+
+
 def test_feedback_dedupes_on_client_uuid(seeded):
     store_id, tour_id, stop_id = seeded
     key = str(uuid.uuid4())

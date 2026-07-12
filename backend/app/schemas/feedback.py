@@ -19,6 +19,12 @@ class FeedbackCreate(BaseModel):
     photo_path: str | None = None
 
 
+class PhotoUploadResult(BaseModel):
+    """Where an uploaded feedback photo landed; served under /media."""
+
+    photo_path: str
+
+
 class FeedbackRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

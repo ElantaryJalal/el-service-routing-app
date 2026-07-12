@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     # Comma-separated CORS origins for browser clients (web build, dashboard).
     # "*" is fine for local dev; set explicit origins in production.
     cors_allow_origins: str = "*"
+    # Uploaded files (visit-feedback photos) live here, served read-only under
+    # /media. Relative to the backend working directory; gitignored.
+    media_dir: str = "./media"
 
     # --- Optimiser inputs ---
     # Where every tour week begins: the company base. The first working day's

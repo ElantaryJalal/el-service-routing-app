@@ -223,6 +223,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stores/{store_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Feedback
+         * @description The store's full visit-feedback history, newest first (mobile detail
+         *     view + dashboard). Feedback is append-only — no edit/delete anywhere; a
+         *     wrong store *fact* is fixed via PATCH /stores/{id}/attributes instead.
+         */
+        get: operations["store_feedback_stores__store_id__feedback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stores/{store_id}/attributes": {
         parameters: {
             query?: never;
@@ -238,6 +260,28 @@ export interface paths {
         head?: never;
         /** Update Store Attributes */
         patch: operations["update_store_attributes_stores__store_id__attributes_patch"];
+        trace?: never;
+    };
+    "/feedback/photos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Feedback Photo
+         * @description Store a feedback photo; the returned photo_path goes into POST
+         *     /feedback. Uploaded separately so the feedback body itself stays a small
+         *     JSON document the offline outbox can park and replay.
+         */
+        post: operations["upload_feedback_photo_feedback_photos_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/feedback": {
@@ -289,6 +333,11 @@ export interface components {
     schemas: {
         /** Body_extract_tours_extract_post */
         Body_extract_tours_extract_post: {
+            /** Image */
+            image: string;
+        };
+        /** Body_upload_feedback_photo_feedback_photos_post */
+        Body_upload_feedback_photo_feedback_photos_post: {
             /** Image */
             image: string;
         };
@@ -465,6 +514,14 @@ export interface components {
             unassigned: components["schemas"]["UnassignedStop"][];
         };
         /**
+         * PhotoUploadResult
+         * @description Where an uploaded feedback photo landed; served under /media.
+         */
+        PhotoUploadResult: {
+            /** Photo Path */
+            photo_path: string;
+        };
+        /**
          * StopCompleteRequest
          * @description Body for POST /stops/{id}/complete. force re-stamps completed_at even
          *     when the stop was already completed (normally a repeat call is a no-op).
@@ -518,6 +575,8 @@ export interface components {
             store_id: number | null;
             /** Store Attributes Complete */
             store_attributes_complete: boolean | null;
+            /** Store Feedback Count */
+            store_feedback_count: number;
         };
         /** StopRead */
         StopRead: {
@@ -1058,6 +1117,37 @@ export interface operations {
             };
         };
     };
+    store_feedback_stores__store_id__feedback_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                store_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     update_store_attributes_stores__store_id__attributes_patch: {
         parameters: {
             query?: never;
@@ -1080,6 +1170,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoreRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_feedback_photo_feedback_photos_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_feedback_photo_feedback_photos_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhotoUploadResult"];
                 };
             };
             /** @description Validation Error */

@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models.store import Store
+from app.models.visit_feedback import VisitFeedback
+from app.schemas.feedback import FeedbackRead
 from app.schemas.store import StoreAttributesUpdate, StoreRead
 
 router = APIRouter(prefix="/stores", tags=["stores"])
@@ -48,6 +50,25 @@ def get_store(store_id: int, db: Annotated[Session, Depends(get_db)]) -> StoreRe
     if store is None:
         raise HTTPException(status_code=404, detail="store not found")
     return _store_read(db, store)
+
+
+@router.get("/{store_id}/feedback", response_model=list[FeedbackRead])
+def store_feedback(
+    store_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> list[VisitFeedback]:
+    """The store's full visit-feedback history, newest first (mobile detail
+    view + dashboard). Feedback is append-only — no edit/delete anywhere; a
+    wrong store *fact* is fixed via PATCH /stores/{id}/attributes instead."""
+    if db.get(Store, store_id) is None:
+        raise HTTPException(status_code=404, detail="store not found")
+    return list(
+        db.scalars(
+            select(VisitFeedback)
+            .where(VisitFeedback.store_id == store_id)
+            .order_by(VisitFeedback.created_at.desc(), VisitFeedback.id.desc())
+        )
+    )
 
 
 @router.patch("/{store_id}/attributes", response_model=StoreRead)

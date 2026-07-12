@@ -18,8 +18,13 @@ type StopRead = components['schemas']['StopRead'];
 type TourRead = components['schemas']['TourRead'];
 type TourUpdate = components['schemas']['TourUpdate'];
 type StoreRead = components['schemas']['StoreRead'];
-type StoreAttributesUpdate = components['schemas']['StoreAttributesUpdate'];
-type FeedbackRead = components['schemas']['FeedbackRead'];
+type PhotoUploadResult = components['schemas']['PhotoUploadResult'];
+
+/** PATCH /stores/{id}/attributes body (partial; also used by the outbox). */
+export type StoreAttributesUpdate = components['schemas']['StoreAttributesUpdate'];
+
+/** One stored visit-feedback entry (store history, dashboard). */
+export type FeedbackRead = components['schemas']['FeedbackRead'];
 
 /** Committed stop with address, task labels, and geocoded coordinate. */
 export type StopDetail = components['schemas']['StopDetail'];
@@ -259,5 +264,26 @@ export const api = {
   /** Record after-visit feedback. Dedupes server-side on client_uuid. */
   postFeedback(payload: FeedbackCreate): Promise<FeedbackRead> {
     return request('/feedback', jsonInit('POST', payload));
+  },
+
+  /**
+   * Upload a feedback photo (multipart); the returned photo_path goes into
+   * postFeedback. Separate from the JSON body so feedback stays queueable.
+   */
+  async uploadFeedbackPhoto(image: ImageFile): Promise<PhotoUploadResult> {
+    const form = new FormData();
+    if (Platform.OS === 'web') {
+      // Browser: the picked uri is a blob:/data: URL; send the real Blob.
+      const blob = await (await fetch(image.uri)).blob();
+      form.append('image', blob, image.name);
+    } else {
+      form.append('image', image as unknown as Blob);
+    }
+    return request('/feedback/photos', { method: 'POST', body: form });
+  },
+
+  /** A store's full visit-feedback history, newest first. */
+  getStoreFeedback(storeId: number): Promise<FeedbackRead[]> {
+    return request(`/stores/${storeId}/feedback`);
   },
 };

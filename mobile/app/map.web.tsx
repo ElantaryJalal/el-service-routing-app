@@ -25,7 +25,9 @@ import {
   type CompletionSync,
 } from '../src/components/CompletionSheet';
 import { DateModeControl } from '../src/components/DateModeControl';
+import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
 import {
+  bumpStoreFeedbackCount,
   completionProgress,
   composeOptimisedTour,
   dayColor,
@@ -35,8 +37,9 @@ import {
   type OptimisedStop,
   type OptimisedTour,
 } from '../src/domain/optimisedTour';
-import { mutationQueue } from '../src/state/mutationQueue';
+import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
+import { useOutboxStatus } from '../src/state/useOutboxStatus';
 
 const COMPLETED_GREY = '#9aa0a6';
 
@@ -91,7 +94,7 @@ function escapeHtml(s: string): string {
 
 /** Build the popup HTML for a stop. The completion button carries a
  * data-action attribute; the popupopen handler wires it back into React. */
-function popupHtml(s: OptimisedStop): string {
+function popupHtml(s: OptimisedStop, pendingSync: boolean): string {
   const address = escapeHtml(
     [s.street, [s.postal_code, s.city].filter(Boolean).join(' ')]
       .filter(Boolean)
@@ -123,6 +126,15 @@ function popupHtml(s: OptimisedStop): string {
       ${remarks}
       <div style="margin:4px 0">${chips}</div>
       ${s.completed_at ? '<div style="color:#1a7f37;font-size:12px;font-weight:600;margin:2px 0">✓ Completed</div>' : ''}
+      ${pendingSync ? '<div style="color:#8a6d00;font-size:12px;font-weight:600;margin:2px 0">⇅ not yet synced</div>' : ''}
+      ${
+        s.store_id !== null && s.store_feedback_count > 0
+          ? `<button data-action="show-history" type="button"
+               style="background:#eef2f7;color:#1f6feb;border:none;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin:2px 0">
+               🗒 ${s.store_feedback_count} past note${s.store_feedback_count === 1 ? '' : 's'}
+             </button>`
+          : ''
+      }
       <div style="display:flex;gap:6px;align-items:center">
         <a href="${nav}" target="_blank" rel="noopener"
            style="display:inline-block;background:#1f6feb;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>
@@ -146,6 +158,11 @@ export default function MapWebScreen() {
     stop: OptimisedStop;
     sync: CompletionSync;
   } | null>(null);
+  const [history, setHistory] = useState<{
+    storeId: number;
+    title: string;
+  } | null>(null);
+  const outboxStatus = useOutboxStatus();
 
   /** Apply a local tour change and persist it to the offline cache. */
   function updateTour(fn: (t: OptimisedTour) => OptimisedTour) {
@@ -162,9 +179,9 @@ export default function MapWebScreen() {
     updateTour((t) => setStopCompletion(t, stop.stop_id, new Date().toISOString()));
     setSheet({ stop, sync: 'pending' });
     try {
-      const outcome = await mutationQueue.run({
+      const outcome = await outbox.enqueue({
         kind: 'complete',
-        stopId: stop.stop_id,
+        payload: { stop_id: stop.stop_id, completed: true },
       });
       setSheet((s) =>
         s && s.stop.stop_id === stop.stop_id ? { ...s, sync: outcome } : s,
@@ -182,7 +199,10 @@ export default function MapWebScreen() {
   async function markNotDone(stop: OptimisedStop) {
     updateTour((t) => setStopCompletion(t, stop.stop_id, null));
     try {
-      await mutationQueue.run({ kind: 'uncomplete', stopId: stop.stop_id });
+      await outbox.enqueue({
+        kind: 'complete',
+        payload: { stop_id: stop.stop_id, completed: false },
+      });
     } catch (err) {
       updateTour((t) => setStopCompletion(t, stop.stop_id, stop.completed_at));
       const message = err instanceof ApiError ? err.message : String(err);
@@ -228,9 +248,9 @@ export default function MapWebScreen() {
       // plan never reaches the screen.
       const cached = await tourCache.load(tourId);
       if (cached && alive) setLoad({ state: 'ready', tour: cached });
-      // Replay any completions/feedback recorded offline BEFORE refetching,
-      // so the fresh data already reflects them.
-      await mutationQueue.flush().catch(() => {});
+      // Replay any writes recorded offline BEFORE refetching, so the fresh
+      // data already reflects them.
+      await outbox.flush().catch(() => {});
       try {
         const [result, stops] = await Promise.all([
           api.optimiseTour(tourId),
@@ -296,29 +316,45 @@ export default function MapWebScreen() {
 
         for (const s of stops) {
           const completed = s.completed_at !== null;
+          const pendingSync = outboxStatus.pendingStopIds.has(s.stop_id);
           const color = completed ? COMPLETED_GREY : dayColor(s.dayIndex);
+          // Amber ring: this stop has writes not yet on the server.
+          const ring = pendingSync ? '#f6a609' : '#fff';
           const icon = L.divIcon({
             className: '',
-            html: `<div style="background:${color};width:24px;height:24px;border-radius:12px;border:2px solid #fff;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4);${completed ? 'opacity:.75' : ''}">${completed ? '✓' : s.sequence}</div>`,
+            html: `<div style="background:${color};width:24px;height:24px;border-radius:12px;border:2px solid ${ring};color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4);${completed ? 'opacity:.75' : ''}">${completed ? '✓' : s.sequence}</div>`,
             iconSize: [24, 24],
             iconAnchor: [12, 12],
           });
           const marker = L.marker([s.lat, s.lng], { icon })
-            .bindPopup(popupHtml(s))
+            .bindPopup(popupHtml(s, pendingSync))
             .addTo(group);
-          // Bridge the popup's completion button back into React.
+          // Bridge the popup's buttons back into React.
           marker.on('popupopen', (e: any) => {
-            const btn = e.popup
-              .getElement()
-              ?.querySelector('[data-action="toggle-complete"]') as
-              | HTMLButtonElement
-              | null;
-            if (!btn) return;
-            btn.onclick = () => {
-              map.closePopup();
-              if (s.completed_at === null) markDone(s);
-              else markNotDone(s);
-            };
+            const root = e.popup.getElement() as HTMLElement | null;
+            if (!root) return;
+            const toggle = root.querySelector(
+              '[data-action="toggle-complete"]',
+            ) as HTMLButtonElement | null;
+            if (toggle) {
+              toggle.onclick = () => {
+                map.closePopup();
+                if (s.completed_at === null) markDone(s);
+                else markNotDone(s);
+              };
+            }
+            const notes = root.querySelector(
+              '[data-action="show-history"]',
+            ) as HTMLButtonElement | null;
+            if (notes && s.store_id !== null) {
+              notes.onclick = () => {
+                map.closePopup();
+                setHistory({
+                  storeId: s.store_id!,
+                  title: s.customer ?? `Stop ${s.stop_id}`,
+                });
+              };
+            }
           });
         }
 
@@ -335,7 +371,7 @@ export default function MapWebScreen() {
     return () => {
       cancelled = true;
     };
-  }, [tour, day, visibleStops]);
+  }, [tour, day, visibleStops, outboxStatus]);
 
   if (load.state === 'loading') {
     return (
@@ -404,13 +440,23 @@ export default function MapWebScreen() {
             busy={modeBusy}
             onChange={changeDateMode}
           />
-          {progress.total > 0 && (
-            <View style={styles.progressPill}>
-              <Text style={styles.progressText}>
-                {progress.done} of {progress.total} done
-              </Text>
-            </View>
-          )}
+          <View style={styles.pillColumn}>
+            {progress.total > 0 && (
+              <View style={styles.progressPill}>
+                <Text style={styles.progressText}>
+                  {progress.done} of {progress.total} done
+                </Text>
+              </View>
+            )}
+            {outboxStatus.pending > 0 && (
+              <View style={styles.syncPill}>
+                <Text style={styles.syncPillText}>
+                  ⇅ {outboxStatus.pending} change
+                  {outboxStatus.pending === 1 ? '' : 's'} pending sync
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
@@ -423,6 +469,19 @@ export default function MapWebScreen() {
           onAttributesSaved={(storeId) =>
             updateTour((t) => setStoreAttributesComplete(t, storeId, true))
           }
+          onFeedbackSent={(s) =>
+            s.store_id !== null &&
+            updateTour((t) => bumpStoreFeedbackCount(t, s.store_id!))
+          }
+        />
+      )}
+
+      {/* Read-only visit-feedback history for the tapped stop's store */}
+      {history && (
+        <FeedbackHistorySheet
+          storeId={history.storeId}
+          title={history.title}
+          onClose={() => setHistory(null)}
         />
       )}
     </View>
@@ -493,6 +552,16 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
   },
   progressText: { fontWeight: '700', color: '#1a7f37', fontSize: 13 },
+  pillColumn: { gap: 6, alignItems: 'flex-end' },
+  syncPill: {
+    backgroundColor: '#fff8e8',
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#f0b429',
+  },
+  syncPillText: { fontWeight: '700', color: '#8a6d00', fontSize: 13 },
   chips: { gap: 8, paddingRight: 12 },
   chip: {
     flexDirection: 'row',

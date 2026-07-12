@@ -1,16 +1,53 @@
+from pathlib import Path
 from typing import Annotated
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import get_db
 from app.models.stop import Stop
 from app.models.visit_feedback import VisitFeedback
-from app.schemas.feedback import FeedbackCreate, FeedbackRead
+from app.schemas.feedback import FeedbackCreate, FeedbackRead, PhotoUploadResult
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
+
+_PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
+_PHOTO_MAX_BYTES = 10 * 1024 * 1024
+
+
+@router.post("/photos", response_model=PhotoUploadResult)
+def upload_feedback_photo(
+    image: Annotated[UploadFile, File()],
+) -> PhotoUploadResult:
+    """Store a feedback photo; the returned photo_path goes into POST
+    /feedback. Uploaded separately so the feedback body itself stays a small
+    JSON document the offline outbox can park and replay."""
+    ext = _PHOTO_TYPES.get(image.content_type or "")
+    if ext is None:
+        raise HTTPException(status_code=415, detail="unsupported image type")
+    data = image.file.read(_PHOTO_MAX_BYTES + 1)
+    if not data:
+        raise HTTPException(status_code=400, detail="empty image")
+    if len(data) > _PHOTO_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="image too large")
+
+    folder = Path(settings.media_dir) / "feedback"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{uuid4().hex}{ext}"
+    (folder / name).write_bytes(data)
+    return PhotoUploadResult(photo_path=f"media/feedback/{name}")
 
 
 @router.post("", response_model=FeedbackRead, status_code=status.HTTP_201_CREATED)

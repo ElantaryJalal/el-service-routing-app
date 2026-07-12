@@ -13,6 +13,7 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -21,11 +22,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 
-import { api, type FeedbackTag } from '../api/client';
+import type { FeedbackTag } from '../api/client';
+import { FEEDBACK_TAGS } from '../domain/feedbackTags';
 import type { OptimisedStop } from '../domain/optimisedTour';
 import { uuidv4 } from '../domain/uuid';
-import { mutationQueue } from '../state/mutationQueue';
+import { outbox } from '../state/outbox';
 
 /** How the tier-1 completion call went (owned by the opener). */
 export type CompletionSync = 'pending' | 'done' | 'queued';
@@ -38,25 +41,20 @@ const SIZES: { value: StoreSize; label: string }[] = [
   { value: 'large', label: 'Large' },
 ];
 
-const TAGS: { value: FeedbackTag; label: string }[] = [
-  { value: 'parking_full', label: 'Parking full' },
-  { value: 'access_problem', label: 'Access problem' },
-  { value: 'took_longer', label: 'Took longer' },
-  { value: 'store_condition', label: 'Store condition' },
-  { value: 'other', label: 'Other' },
-];
-
 export function CompletionSheet({
   stop,
   sync,
   onClose,
   onAttributesSaved,
+  onFeedbackSent,
 }: {
   stop: OptimisedStop;
   sync: CompletionSync;
   onClose: () => void;
   /** Called after a successful attribute save so the screen can stop asking. */
   onAttributesSaved: (storeId: number) => void;
+  /** Called once feedback is stored/queued, e.g. to bump the notes count. */
+  onFeedbackSent?: (stop: OptimisedStop) => void;
 }) {
   // --- Tier 2 state ---
   const askAttributes =
@@ -64,6 +62,7 @@ export function CompletionSheet({
   const [attrPhase, setAttrPhase] = useState<'form' | 'saving' | 'saved' | 'skipped'>(
     'form',
   );
+  const [attrQueued, setAttrQueued] = useState(false);
   const [attrError, setAttrError] = useState<string | null>(null);
   const [size, setSize] = useState<StoreSize | null>(null);
   const [inMall, setInMall] = useState<boolean | null>(null);
@@ -73,21 +72,41 @@ export function CompletionSheet({
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [tags, setTags] = useState<FeedbackTag[]>([]);
   const [note, setNote] = useState('');
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [feedbackPhase, setFeedbackPhase] = useState<
     'idle' | 'sending' | 'sent' | 'queued'
   >('idle');
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  async function pickPhoto() {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  }
 
   async function saveAttributes() {
     if (stop.store_id === null) return;
     setAttrPhase('saving');
     setAttrError(null);
     try {
-      await api.patchStoreAttributes(stop.store_id, {
-        ...(size !== null && { size }),
-        ...(inMall !== null && { in_mall: inMall }),
-        ...(hasParking !== null && { has_parking: hasParking }),
+      // Outbox-first: works offline; attributes are last-write-wins on the
+      // server so a delayed sync is safe.
+      const outcome = await outbox.enqueue({
+        kind: 'attributes',
+        payload: {
+          store_id: stop.store_id,
+          fields: {
+            ...(size !== null && { size }),
+            ...(inMall !== null && { in_mall: inMall }),
+            ...(hasParking !== null && { has_parking: hasParking }),
+          },
+        },
       });
+      setAttrQueued(outcome === 'queued');
       setAttrPhase('saved');
       onAttributesSaved(stop.store_id);
     } catch {
@@ -101,16 +120,18 @@ export function CompletionSheet({
     setFeedbackPhase('sending');
     setFeedbackError(null);
     try {
-      const outcome = await mutationQueue.run({
+      const outcome = await outbox.enqueue({
         kind: 'feedback',
         payload: {
           stop_id: stop.stop_id,
           client_uuid: uuidv4(),
           tags,
           note: note.trim() || null,
+          ...(photoUri && { photo_local_uri: photoUri }),
         },
       });
       setFeedbackPhase(outcome === 'done' ? 'sent' : 'queued');
+      onFeedbackSent?.(stop);
     } catch {
       setFeedbackPhase('idle');
       setFeedbackError('Could not send feedback.');
@@ -118,7 +139,8 @@ export function CompletionSheet({
   }
 
   const attrDirty = size !== null || inMall !== null || hasParking !== null;
-  const feedbackDirty = tags.length > 0 || note.trim().length > 0;
+  const feedbackDirty =
+    tags.length > 0 || note.trim().length > 0 || photoUri !== null;
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -216,7 +238,11 @@ export function CompletionSheet({
               </View>
             )}
             {attrPhase === 'saved' && (
-              <Text style={styles.savedNote}>Store info saved — thanks!</Text>
+              <Text style={styles.savedNote}>
+                {attrQueued
+                  ? 'Store info saved — will sync when online.'
+                  : 'Store info saved — thanks!'}
+              </Text>
             )}
 
             {/* Tier 3: optional visit feedback */}
@@ -236,7 +262,7 @@ export function CompletionSheet({
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Feedback about this visit</Text>
                 <View style={styles.tagWrap}>
-                  {TAGS.map((t) => {
+                  {FEEDBACK_TAGS.map((t) => {
                     const active = tags.includes(t.value);
                     return (
                       <OptionButton
@@ -262,6 +288,20 @@ export function CompletionSheet({
                   onChangeText={setNote}
                   multiline
                 />
+
+                {photoUri ? (
+                  <View style={styles.photoRow}>
+                    <Image source={{ uri: photoUri }} style={styles.photoThumb} />
+                    <Pressable onPress={() => setPhotoUri(null)} hitSlop={10}>
+                      <Text style={styles.photoRemove}>Remove ✕</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Pressable style={styles.photoButton} onPress={pickPhoto}>
+                    <Text style={styles.photoButtonText}>📷 Add photo</Text>
+                  </Pressable>
+                )}
+
                 {feedbackError && <Text style={styles.error}>{feedbackError}</Text>}
                 <Pressable
                   style={[
@@ -374,6 +414,19 @@ const styles = StyleSheet.create({
 
   feedbackToggle: { paddingVertical: 4 },
   feedbackToggleText: { color: '#1f6feb', fontWeight: '600', fontSize: 14 },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  photoThumb: { width: 72, height: 72, borderRadius: 8, backgroundColor: '#eee' },
+  photoRemove: { color: '#b00020', fontWeight: '600', fontSize: 13 },
+  photoButton: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    backgroundColor: '#fff',
+  },
+  photoButtonText: { color: '#333', fontWeight: '600', fontSize: 14 },
   noteInput: {
     backgroundColor: '#fff',
     borderWidth: 1,

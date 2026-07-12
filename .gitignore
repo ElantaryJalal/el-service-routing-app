@@ -45,3 +45,6 @@ Thumbs.db
 data/
 infra/osrm-data/*
 !infra/osrm-data/.gitkeep
+
+# Uploaded visit-feedback photos (backend /media mount)
+backend/media/

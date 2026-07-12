@@ -53,6 +53,9 @@ class StopDetail(StopRead):
     # store_attributes_complete is False.
     store_id: int | None
     store_attributes_complete: bool | None
+    # How many past visit-feedback notes exist for the store ("N past notes"
+    # indicator on the stop card); 0 when the stop has no store.
+    store_feedback_count: int
 
 
 class CommitResult(BaseModel):

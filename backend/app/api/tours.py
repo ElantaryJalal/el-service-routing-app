@@ -11,6 +11,7 @@ from app.db import get_db
 from app.models.stop import HoursSource, Stop
 from app.models.task import Task
 from app.models.tour import Tour
+from app.models.visit_feedback import VisitFeedback
 from app.schemas.draft import DraftStop, DraftStopUpdate, TourDraft
 from app.schemas.optimise import OptimiseResult
 from app.schemas.stop import CommitResult, StopDetail
@@ -288,6 +289,18 @@ def list_stops(
         ).all()
     }
 
+    # One grouped query for the "N past notes" indicators.
+    store_ids = {s.store_id for s in stops if s.store_id is not None}
+    feedback_counts: dict[int, int] = {}
+    if store_ids:
+        feedback_counts = dict(
+            db.execute(
+                select(VisitFeedback.store_id, func.count())
+                .where(VisitFeedback.store_id.in_(store_ids))
+                .group_by(VisitFeedback.store_id)
+            ).all()
+        )
+
     result: list[StopDetail] = []
     for stop in stops:
         lon, lat = coords.get(stop.id, (None, None))
@@ -313,6 +326,11 @@ def list_stops(
                 store_id=stop.store_id,
                 store_attributes_complete=(
                     stop.store.attributes_complete if stop.store else None
+                ),
+                store_feedback_count=(
+                    feedback_counts.get(stop.store_id, 0)
+                    if stop.store_id is not None
+                    else 0
                 ),
             )
         )
