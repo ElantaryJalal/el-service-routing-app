@@ -206,6 +206,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stores": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Stores
+         * @description The store catalog, A-Z, for the office view. needs_attributes=true
+         *     filters to stores still missing a crowdsourced attribute (the "which
+         *     facts are we lacking" list); false filters to complete ones.
+         */
+        get: operations["list_stores_stores_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stores/{store_id}": {
         parameters: {
             query?: never;
@@ -215,6 +237,27 @@ export interface paths {
         };
         /** Get Store */
         get: operations["get_store_stores__store_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores/{store_id}/visits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Store Visits
+         * @description Every stop ever linked to this store, newest first — the office's
+         *     visit history with predicted ETA vs. actual completion.
+         */
+        get: operations["store_visits_stores__store_id__visits_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -661,6 +704,30 @@ export interface components {
          * @enum {string}
          */
         StoreSize: "small" | "medium" | "large";
+        /**
+         * StoreVisit
+         * @description One (planned or completed) stop at this store, for the office view's
+         *     visit-history table. eta is the optimiser's prediction, completed_at the
+         *     crew's actual — the office watches the delta between them.
+         */
+        StoreVisit: {
+            /** Stop Id */
+            stop_id: number;
+            /** Tour Id */
+            tour_id: number;
+            /** Calendar Week */
+            calendar_week: number;
+            /** Date */
+            date: string | null;
+            /** Employee */
+            employee: string | null;
+            /** Service Minutes */
+            service_minutes: number | null;
+            /** Eta */
+            eta: string | null;
+            /** Completed At */
+            completed_at: string | null;
+        };
         /** TourDraft */
         TourDraft: {
             /** Tour Id */
@@ -1086,6 +1153,37 @@ export interface operations {
             };
         };
     };
+    list_stores_stores_get: {
+        parameters: {
+            query?: {
+                needs_attributes?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_store_stores__store_id__get: {
         parameters: {
             query?: never;
@@ -1104,6 +1202,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoreRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    store_visits_stores__store_id__visits_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                store_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreVisit"][];
                 };
             };
             /** @description Validation Error */

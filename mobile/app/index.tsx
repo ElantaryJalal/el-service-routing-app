@@ -135,6 +135,11 @@ export default function CaptureScreen() {
       <Pressable style={styles.buttonSecondary} onPress={pickFromLibrary}>
         <Text style={styles.buttonSecondaryText}>Choose from library</Text>
       </Pressable>
+
+      {/* Office view: the captured business data per store. */}
+      <Pressable onPress={() => router.push('/stores')}>
+        <Text style={styles.storesLink}>Stores →</Text>
+      </Pressable>
     </View>
   );
 }
@@ -161,6 +166,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonSecondaryText: { color: '#1f6feb', fontWeight: '600', fontSize: 16 },
+  storesLink: {
+    color: '#1f6feb',
+    fontWeight: '600',
+    fontSize: 15,
+    textAlign: 'center',
+    marginTop: 18,
+  },
   preview: { width: 200, height: 260, borderRadius: 8, resizeMode: 'cover' },
   previewSmall: { width: 120, height: 150, borderRadius: 6, resizeMode: 'cover' },
   errorBox: {

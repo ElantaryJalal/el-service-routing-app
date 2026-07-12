@@ -5,7 +5,7 @@ unreachable. No network calls. Uses fictional fixtures and cleans up after.
 """
 
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -128,6 +128,51 @@ def test_complete_stop_is_idempotent(seeded):
     db = SessionLocal()
     assert db.get(Stop, stop_id).completed_at is not None
     db.close()
+
+
+def test_stores_list_needs_attributes_filter(seeded):
+    store_id, _, _ = seeded
+
+    # Fresh fictional store: attributes missing -> in the "needs" list.
+    needy = {s["id"] for s in client.get("/stores?needs_attributes=true").json()}
+    assert store_id in needy
+    done = {s["id"] for s in client.get("/stores?needs_attributes=false").json()}
+    assert store_id not in done
+    # Unfiltered list contains it either way.
+    everything = {s["id"] for s in client.get("/stores").json()}
+    assert store_id in everything
+
+    # Capturing all three attributes moves it to the complete side.
+    client.patch(
+        f"/stores/{store_id}/attributes",
+        json={"size": "large", "in_mall": False, "has_parking": True},
+    )
+    needy = {s["id"] for s in client.get("/stores?needs_attributes=true").json()}
+    assert store_id not in needy
+    done = {s["id"] for s in client.get("/stores?needs_attributes=false").json()}
+    assert store_id in done
+
+
+def test_store_visits_history(seeded):
+    store_id, tour_id, stop_id = seeded
+
+    # Give the stop a predicted ETA (as the optimiser would) and complete it.
+    db = SessionLocal()
+    stop = db.get(Stop, stop_id)
+    stop.eta = datetime(2026, 7, 6, 9, 30, tzinfo=UTC)
+    stop.assigned_day = date(2026, 7, 6)
+    db.commit()
+    db.close()
+    client.post(f"/stops/{stop_id}/complete")
+
+    [visit] = client.get(f"/stores/{store_id}/visits").json()
+    assert visit["stop_id"] == stop_id
+    assert visit["tour_id"] == tour_id
+    assert visit["date"] == "2026-07-06"
+    assert visit["eta"].startswith("2026-07-06T09:30")
+    assert visit["completed_at"] is not None
+
+    assert client.get("/stores/999999/visits").status_code == 404
 
 
 def test_uncomplete_stop_clears_completed_at(seeded):

@@ -17,8 +17,13 @@ type StopUpdate = components['schemas']['StopUpdate'];
 type StopRead = components['schemas']['StopRead'];
 type TourRead = components['schemas']['TourRead'];
 type TourUpdate = components['schemas']['TourUpdate'];
-type StoreRead = components['schemas']['StoreRead'];
 type PhotoUploadResult = components['schemas']['PhotoUploadResult'];
+
+/** A catalog store incl. crowdsourced attributes (office view). */
+export type StoreRead = components['schemas']['StoreRead'];
+
+/** One past/planned stop at a store: predicted ETA vs actual completion. */
+export type StoreVisit = components['schemas']['StoreVisit'];
 
 /** PATCH /stores/{id}/attributes body (partial; also used by the outbox). */
 export type StoreAttributesUpdate = components['schemas']['StoreAttributesUpdate'];
@@ -285,5 +290,21 @@ export const api = {
   /** A store's full visit-feedback history, newest first. */
   getStoreFeedback(storeId: number): Promise<FeedbackRead[]> {
     return request(`/stores/${storeId}/feedback`);
+  },
+
+  /** The store catalog A-Z; needsAttributes filters by attribute state. */
+  getStores(needsAttributes?: boolean): Promise<StoreRead[]> {
+    const query =
+      needsAttributes === undefined ? '' : `?needs_attributes=${needsAttributes}`;
+    return request(`/stores${query}`);
+  },
+
+  getStore(storeId: number): Promise<StoreRead> {
+    return request(`/stores/${storeId}`);
+  },
+
+  /** Every stop linked to the store, newest first (office visit history). */
+  getStoreVisits(storeId: number): Promise<StoreVisit[]> {
+    return request(`/stores/${storeId}/visits`);
   },
 };

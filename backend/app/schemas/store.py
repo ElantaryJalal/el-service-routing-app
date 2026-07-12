@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -14,6 +14,21 @@ class StoreAttributesUpdate(BaseModel):
     has_parking: bool | None = None
     # Who captured the attributes (free-text employee name; no auth yet).
     updated_by: str | None = None
+
+
+class StoreVisit(BaseModel):
+    """One (planned or completed) stop at this store, for the office view's
+    visit-history table. eta is the optimiser's prediction, completed_at the
+    crew's actual — the office watches the delta between them."""
+
+    stop_id: int
+    tour_id: int
+    calendar_week: int
+    date: date | None
+    employee: str | None
+    service_minutes: int | None
+    eta: datetime | None
+    completed_at: datetime | None
 
 
 class StoreRead(BaseModel):
