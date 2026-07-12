@@ -196,7 +196,11 @@ export interface paths {
          *     retry) keeps the original completed_at unless force is set.
          */
         post: operations["complete_stop_stops__stop_id__complete_post"];
-        delete?: never;
+        /**
+         * Uncomplete Stop
+         * @description Undo a mis-tapped completion: clear completed_at. Idempotent.
+         */
+        delete: operations["uncomplete_stop_stops__stop_id__complete_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -510,6 +514,10 @@ export interface components {
             lat: number | null;
             /** Lng */
             lng: number | null;
+            /** Store Id */
+            store_id: number | null;
+            /** Store Attributes Complete */
+            store_attributes_complete: boolean | null;
         };
         /** StopRead */
         StopRead: {
@@ -967,6 +975,37 @@ export interface operations {
                 "application/json": components["schemas"]["StopCompleteRequest"] | null;
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    uncomplete_stop_stops__stop_id__complete_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

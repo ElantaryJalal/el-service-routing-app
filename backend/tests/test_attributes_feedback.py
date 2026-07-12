@@ -130,6 +130,38 @@ def test_complete_stop_is_idempotent(seeded):
     db.close()
 
 
+def test_uncomplete_stop_clears_completed_at(seeded):
+    _, _, stop_id = seeded
+
+    assert client.post(f"/stops/{stop_id}/complete").json()["completed_at"]
+
+    undone = client.delete(f"/stops/{stop_id}/complete")
+    assert undone.status_code == 200
+    assert undone.json()["completed_at"] is None
+
+    # Idempotent: undoing an already-open stop is a no-op, not an error.
+    again = client.delete(f"/stops/{stop_id}/complete")
+    assert again.status_code == 200
+    assert again.json()["completed_at"] is None
+
+
+def test_list_stops_carries_store_attribute_state(seeded):
+    store_id, tour_id, stop_id = seeded
+
+    [stop] = client.get(f"/tours/{tour_id}/stops").json()
+    assert stop["id"] == stop_id
+    assert stop["store_id"] == store_id
+    # Fresh store: nothing captured yet, so the app should show the form.
+    assert stop["store_attributes_complete"] is False
+
+    client.patch(
+        f"/stores/{store_id}/attributes",
+        json={"size": "small", "in_mall": False, "has_parking": True},
+    )
+    [stop] = client.get(f"/tours/{tour_id}/stops").json()
+    assert stop["store_attributes_complete"] is True
+
+
 def test_feedback_dedupes_on_client_uuid(seeded):
     store_id, tour_id, stop_id = seeded
     key = str(uuid.uuid4())

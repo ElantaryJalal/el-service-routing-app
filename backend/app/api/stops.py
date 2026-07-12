@@ -52,3 +52,20 @@ def complete_stop(
         db.commit()
         db.refresh(stop)
     return stop
+
+
+@router.delete("/{stop_id}/complete", response_model=StopRead)
+def uncomplete_stop(
+    stop_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> Stop:
+    """Undo a mis-tapped completion: clear completed_at. Idempotent."""
+    stop = db.get(Stop, stop_id)
+    if stop is None:
+        raise HTTPException(status_code=404, detail="stop not found")
+
+    if stop.completed_at is not None:
+        stop.completed_at = None
+        db.commit()
+        db.refresh(stop)
+    return stop

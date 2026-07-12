@@ -17,12 +17,21 @@ type StopUpdate = components['schemas']['StopUpdate'];
 type StopRead = components['schemas']['StopRead'];
 type TourRead = components['schemas']['TourRead'];
 type TourUpdate = components['schemas']['TourUpdate'];
+type StoreRead = components['schemas']['StoreRead'];
+type StoreAttributesUpdate = components['schemas']['StoreAttributesUpdate'];
+type FeedbackRead = components['schemas']['FeedbackRead'];
 
 /** Committed stop with address, task labels, and geocoded coordinate. */
 export type StopDetail = components['schemas']['StopDetail'];
 
 /** Whether the plan's dates bind ('fixed') or the optimiser assigns days. */
 export type DateMode = components['schemas']['DateMode'];
+
+/** Controlled vocabulary for visit-feedback tags. */
+export type FeedbackTag = components['schemas']['FeedbackTag'];
+
+/** POST /feedback body (client_uuid is the offline idempotency key). */
+export type FeedbackCreate = components['schemas']['FeedbackCreate'];
 
 // --- Provisional types (endpoints not yet in the backend OpenAPI) ----------
 // TODO(backend): implement POST /tours/extract, GET /tours/{id}/draft,
@@ -227,5 +236,28 @@ export const api = {
   /** PATCH per-tour settings (date_mode). Re-run optimise afterwards. */
   patchTour(tourId: number, fields: TourUpdate): Promise<TourRead> {
     return request(`/tours/${tourId}`, jsonInit('PATCH', fields));
+  },
+
+  /** Mark a stop done (sets completed_at server-side; idempotent). */
+  completeStop(stopId: number): Promise<StopRead> {
+    return request(`/stops/${stopId}/complete`, jsonInit('POST'));
+  },
+
+  /** Undo a mis-tapped completion (clears completed_at; idempotent). */
+  uncompleteStop(stopId: number): Promise<StopRead> {
+    return request(`/stops/${stopId}/complete`, { method: 'DELETE' });
+  },
+
+  /** Capture crowdsourced store attributes (size / in_mall / has_parking). */
+  patchStoreAttributes(
+    storeId: number,
+    fields: StoreAttributesUpdate,
+  ): Promise<StoreRead> {
+    return request(`/stores/${storeId}/attributes`, jsonInit('PATCH', fields));
+  },
+
+  /** Record after-visit feedback. Dedupes server-side on client_uuid. */
+  postFeedback(payload: FeedbackCreate): Promise<FeedbackRead> {
+    return request('/feedback', jsonInit('POST', payload));
   },
 };

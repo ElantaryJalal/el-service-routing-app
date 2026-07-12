@@ -16,15 +16,26 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 
 import { ApiError, api, type DateMode } from '../src/api/client';
+import {
+  CompletionSheet,
+  type CompletionSync,
+} from '../src/components/CompletionSheet';
 import { DateModeControl } from '../src/components/DateModeControl';
 import {
+  completionProgress,
   composeOptimisedTour,
   dayColor,
   etaNearClosing,
+  setStopCompletion,
+  setStoreAttributesComplete,
   type OptimisedStop,
   type OptimisedTour,
 } from '../src/domain/optimisedTour';
+import { mutationQueue } from '../src/state/mutationQueue';
 import { tourCache } from '../src/state/tourCache';
+
+/** Marker colour for stops already serviced (day colour otherwise). */
+const COMPLETED_GREY = '#9aa0a6';
 
 type Load =
   | { state: 'loading' }
@@ -77,6 +88,55 @@ export default function MapScreen() {
   const [selected, setSelected] = useState<OptimisedStop | null>(null);
   const [showUnassigned, setShowUnassigned] = useState(false);
   const [modeBusy, setModeBusy] = useState(false);
+  const [sheet, setSheet] = useState<{
+    stop: OptimisedStop;
+    sync: CompletionSync;
+  } | null>(null);
+
+  /** Apply a local tour change and persist it to the offline cache. */
+  function updateTour(fn: (t: OptimisedTour) => OptimisedTour) {
+    setLoad((prev) => {
+      if (prev.state !== 'ready') return prev;
+      const updated = fn(prev.tour);
+      tourCache.save(updated).catch(() => {});
+      return { state: 'ready', tour: updated };
+    });
+  }
+
+  /** Tier 1: local-first completion, then sheet with tiers 2/3. */
+  async function markDone(stop: OptimisedStop) {
+    updateTour((t) => setStopCompletion(t, stop.stop_id, new Date().toISOString()));
+    setSelected(null);
+    setSheet({ stop, sync: 'pending' });
+    try {
+      const outcome = await mutationQueue.run({
+        kind: 'complete',
+        stopId: stop.stop_id,
+      });
+      setSheet((s) =>
+        s && s.stop.stop_id === stop.stop_id ? { ...s, sync: outcome } : s,
+      );
+    } catch (err) {
+      // Backend rejected it outright (not an offline hiccup): roll back.
+      updateTour((t) => setStopCompletion(t, stop.stop_id, null));
+      setSheet(null);
+      const message = err instanceof ApiError ? err.message : String(err);
+      Alert.alert('Could not mark done', message);
+    }
+  }
+
+  /** Undo a mis-tap: clear completed_at (works offline like completion). */
+  async function markNotDone(stop: OptimisedStop) {
+    updateTour((t) => setStopCompletion(t, stop.stop_id, null));
+    setSelected(null);
+    try {
+      await mutationQueue.run({ kind: 'uncomplete', stopId: stop.stop_id });
+    } catch (err) {
+      updateTour((t) => setStopCompletion(t, stop.stop_id, stop.completed_at));
+      const message = err instanceof ApiError ? err.message : String(err);
+      Alert.alert('Could not undo completion', message);
+    }
+  }
 
   async function changeDateMode(next: DateMode) {
     if (modeBusy) return;
@@ -113,6 +173,9 @@ export default function MapScreen() {
       // network — otherwise a re-optimised plan never reaches the screen.
       const cached = await tourCache.load(tourId);
       if (cached && alive) setLoad({ state: 'ready', tour: cached });
+      // Replay any completions/feedback recorded offline BEFORE refetching,
+      // so the fresh data already reflects them.
+      await mutationQueue.flush().catch(() => {});
       try {
         const [result, stops] = await Promise.all([
           api.optimiseTour(tourId),
@@ -177,10 +240,15 @@ export default function MapScreen() {
     );
   }
 
+  // Completed stops drop out of the active route line (but stay tappable).
   const routeCoords =
     day !== 'all'
-      ? visibleStops.map((s) => ({ latitude: s.lat, longitude: s.lng }))
+      ? visibleStops
+          .filter((s) => s.completed_at === null)
+          .map((s) => ({ latitude: s.lat, longitude: s.lng }))
       : [];
+
+  const progress = completionProgress(visibleStops);
 
   return (
     <View style={styles.flex}>
@@ -209,8 +277,20 @@ export default function MapScreen() {
             onPress={() => setSelected(s)}
             anchor={{ x: 0.5, y: 0.5 }}
           >
-            <View style={[styles.pin, { backgroundColor: dayColor(s.dayIndex) }]}>
-              <Text style={styles.pinText}>{s.sequence}</Text>
+            <View
+              style={[
+                styles.pin,
+                {
+                  backgroundColor: s.completed_at
+                    ? COMPLETED_GREY
+                    : dayColor(s.dayIndex),
+                },
+                s.completed_at !== null && styles.pinCompleted,
+              ]}
+            >
+              <Text style={styles.pinText}>
+                {s.completed_at ? '✓' : s.sequence}
+              </Text>
             </View>
           </Marker>
         ))}
@@ -245,11 +325,20 @@ export default function MapScreen() {
           ))}
         </ScrollView>
 
-        <DateModeControl
-          mode={tour!.date_mode}
-          busy={modeBusy}
-          onChange={changeDateMode}
-        />
+        <View style={styles.controlRow}>
+          <DateModeControl
+            mode={tour!.date_mode}
+            busy={modeBusy}
+            onChange={changeDateMode}
+          />
+          {progress.total > 0 && (
+            <View style={styles.progressPill}>
+              <Text style={styles.progressText}>
+                {progress.done} of {progress.total} done
+              </Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* Bottom overlay: tapped-stop detail */}
@@ -258,6 +347,20 @@ export default function MapScreen() {
           stop={selected}
           onClose={() => setSelected(null)}
           bottomInset={insets.bottom}
+          onMarkDone={() => markDone(selected)}
+          onMarkNotDone={() => markNotDone(selected)}
+        />
+      )}
+
+      {/* Completion sheet: tier 1 status + optional store info + feedback */}
+      {sheet && (
+        <CompletionSheet
+          stop={sheet.stop}
+          sync={sheet.sync}
+          onClose={() => setSheet(null)}
+          onAttributesSaved={(storeId) =>
+            updateTour((t) => setStoreAttributesComplete(t, storeId, true))
+          }
         />
       )}
 
@@ -307,10 +410,14 @@ function StopDetailCard({
   stop,
   onClose,
   bottomInset,
+  onMarkDone,
+  onMarkNotDone,
 }: {
   stop: OptimisedStop;
   onClose: () => void;
   bottomInset: number;
+  onMarkDone: () => void;
+  onMarkNotDone: () => void;
 }) {
   const urgent = etaNearClosing(stop.eta, stop.closing_time);
   const address = [
@@ -383,6 +490,16 @@ function StopDetailCard({
       <Pressable style={styles.button} onPress={navigate}>
         <Text style={styles.buttonText}>Navigate</Text>
       </Pressable>
+
+      {stop.completed_at === null ? (
+        <Pressable style={styles.doneButton} onPress={onMarkDone}>
+          <Text style={styles.buttonText}>Mark done ✓</Text>
+        </Pressable>
+      ) : (
+        <Pressable style={styles.undoButton} onPress={onMarkNotDone}>
+          <Text style={styles.undoButtonText}>Completed — mark as not done</Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -404,6 +521,24 @@ const styles = StyleSheet.create({
     borderColor: '#fff',
   },
   pinText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  pinCompleted: { opacity: 0.7 },
+
+  controlRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  progressPill: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    elevation: 2,
+  },
+  progressText: { fontWeight: '700', color: '#1a7f37', fontSize: 13 },
 
   topOverlay: { position: 'absolute', top: 0, left: 0, right: 0, gap: 8, paddingHorizontal: 12 },
   banner: {
@@ -494,6 +629,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  doneButton: {
+    backgroundColor: '#1a7f37',
+    paddingVertical: 13,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  undoButton: {
+    backgroundColor: '#f1f3f5',
+    paddingVertical: 13,
+    borderRadius: 8,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ccc',
+  },
+  undoButtonText: { color: '#555', fontWeight: '600', fontSize: 15 },
 
   modalBackdrop: { flex: 1, backgroundColor: '#00000088', justifyContent: 'flex-end' },
   modalCard: {

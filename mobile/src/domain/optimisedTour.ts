@@ -29,6 +29,12 @@ export interface OptimisedStop {
   service_minutes: number | null;
   closing_time: string | null;
   hours_source: HoursSource;
+  /** ISO timestamp when the crew marked the stop done; null = still open. */
+  completed_at: string | null;
+  /** Catalog store link (null when the stop wasn't matched). */
+  store_id: number | null;
+  /** False = the completion sheet should ask for the store's attributes. */
+  store_attributes_complete: boolean | null;
 }
 
 export interface OptimisedDay {
@@ -150,6 +156,9 @@ export function composeOptimisedTour(
           service_minutes: d?.service_minutes ?? null,
           closing_time: d?.closing_time ?? null,
           hours_source: d?.hours_source ?? 'default',
+          completed_at: d?.completed_at ?? null,
+          store_id: d?.store_id ?? null,
+          store_attributes_complete: d?.store_attributes_complete ?? null,
         };
       }),
   }));
@@ -169,5 +178,57 @@ export function composeOptimisedTour(
     days,
     unassigned,
     cached_at: Date.now(),
+  };
+}
+
+/**
+ * A copy of the tour with one stop's completion state changed. Local-first:
+ * the Map applies this (and caches it) immediately, whether or not the API
+ * call has reached the backend yet.
+ */
+export function setStopCompletion(
+  tour: OptimisedTour,
+  stopId: number,
+  completedAt: string | null,
+): OptimisedTour {
+  return {
+    ...tour,
+    days: tour.days.map((day) => ({
+      ...day,
+      stops: day.stops.map((s) =>
+        s.stop_id === stopId ? { ...s, completed_at: completedAt } : s,
+      ),
+    })),
+  };
+}
+
+/**
+ * A copy of the tour with one stop's store attributes marked captured, so a
+ * later tap on the same store (or another stop of it) stops prompting.
+ */
+export function setStoreAttributesComplete(
+  tour: OptimisedTour,
+  storeId: number,
+  complete: boolean,
+): OptimisedTour {
+  return {
+    ...tour,
+    days: tour.days.map((day) => ({
+      ...day,
+      stops: day.stops.map((s) =>
+        s.store_id === storeId ? { ...s, store_attributes_complete: complete } : s,
+      ),
+    })),
+  };
+}
+
+/** "5 of 9 done" numbers for a set of stops. */
+export function completionProgress(stops: OptimisedStop[]): {
+  done: number;
+  total: number;
+} {
+  return {
+    done: stops.filter((s) => s.completed_at !== null).length,
+    total: stops.length,
   };
 }

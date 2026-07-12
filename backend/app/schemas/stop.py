@@ -48,6 +48,11 @@ class StopDetail(StopRead):
     remarks: str | None
     lat: float | None
     lng: float | None
+    # Catalog store link (null when the stop wasn't matched). The completion
+    # sheet shows the attribute-capture form only while
+    # store_attributes_complete is False.
+    store_id: int | None
+    store_attributes_complete: bool | None
 
 
 class CommitResult(BaseModel):

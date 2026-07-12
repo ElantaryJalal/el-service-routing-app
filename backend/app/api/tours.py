@@ -274,7 +274,7 @@ def list_stops(
     stops = db.scalars(
         select(Stop)
         .where(Stop.tour_id == tour_id)
-        .options(selectinload(Stop.tasks))
+        .options(selectinload(Stop.tasks), selectinload(Stop.store))
         .order_by(Stop.row_index)
     ).all()
 
@@ -310,6 +310,10 @@ def list_stops(
                 remarks=stop.remarks_raw,
                 lat=lat,
                 lng=lon,
+                store_id=stop.store_id,
+                store_attributes_complete=(
+                    stop.store.attributes_complete if stop.store else None
+                ),
             )
         )
     return result
