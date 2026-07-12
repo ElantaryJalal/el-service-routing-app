@@ -47,10 +47,16 @@ class Settings(BaseSettings):
     default_start_street: str = "Werner-Heisenberg-Straße 10"
     default_start_postal_code: str = "52477"
     default_start_city: str = "Alsdorf"
-    # When a stop carries a date (extracted from the plan's Datum column), pin
-    # it to that day and only optimise the sequence within the day. Stops
-    # without a date may still float to any working day.
+    # When a stop carries a date (extracted from the plan's Datum column) and
+    # the tour's date_mode is 'fixed', pin it to that day and only optimise the
+    # sequence within the day. Stops without a date may still float to any
+    # working day. Kill-switch: False makes even 'fixed' tours float.
     respect_stop_dates: bool = True
+    # Guardrail for date_mode='optimized': a single day may not mix stops from
+    # proximity clusters whose centroids are further apart than this. Keeps the
+    # solver from scheduling far-apart regions on one day when travel looks
+    # cheap on paper.
+    max_day_span_km: float = 120.0
     working_day_start: time = time(7, 0)
     working_day_end: time = time(19, 0)
     default_service_minutes: int = 60

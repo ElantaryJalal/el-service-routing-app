@@ -12,8 +12,16 @@ Key modelling choices:
   bounded to its own day, so the solver's choice of vehicle == choice of day.
 - A job carries one window per working day. Only the window on the vehicle's own
   day overlaps that vehicle's time_window, so picking a vehicle picks the day.
-- A stop dated by the plan (respect_stop_dates) gets only its own day's window:
-  the plan's Datum column decides the day, the solver only sequences within it.
+- tour.date_mode decides how binding the plan's Datum column is. 'fixed': a
+  dated stop gets only its own day's window — the plan decides the day, the
+  solver only sequences within it. 'optimized': dates are ignored and the
+  solver assigns days itself, guarded by region clustering (below).
+- Guardrail for 'optimized': stops are clustered by proximity, clusters whose
+  centroids lie within max_day_span_km of each other are grouped, and each
+  group receives its own share of the week's days (windows only on those
+  days). A single day therefore never mixes far-apart regions, which zero-ish
+  looking travel in the matrix would otherwise invite. Regions that can't get
+  a day are returned as unassigned.
 - Vroom time windows constrain when *service starts*. To force "done before the
   store closes", each day's window end is `close - service`, not `close`.
 - The OSRM matrix is fetched explicitly and passed to Vroom (matrix mode); the
@@ -25,13 +33,14 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.stop import Stop
-from app.models.tour import Tour
+from app.models.tour import DateMode, Tour
 from app.routing.osrm import OSRMClient
 from app.routing.vroom import VroomClient
 from app.schemas.optimise import DayStop, DaySummary, OptimiseResult, UnassignedStop
@@ -44,6 +53,7 @@ MatrixProvider = Callable[[Sequence[Coordinate]], list[list[int]]]
 REASON_NO_WINDOW = "no feasible time window"
 REASON_NO_DAYS = "exceeds available days"
 REASON_MISSING_LOCATION = "missing location"
+REASON_FAR_REGION = "too far from the rest of the tour to fit into the week"
 
 
 @dataclass
@@ -54,6 +64,7 @@ class OptimiseConfig:
     skip_weekdays: set[int]
     near_limit_seconds: int
     respect_stop_dates: bool = True
+    max_day_span_km: float = 120.0
 
     @classmethod
     def from_settings(cls) -> OptimiseConfig:
@@ -64,6 +75,7 @@ class OptimiseConfig:
             skip_weekdays=settings.skip_weekday_set,
             near_limit_seconds=settings.near_limit_minutes * 60,
             respect_stop_dates=settings.respect_stop_dates,
+            max_day_span_km=settings.max_day_span_km,
         )
 
 
@@ -142,6 +154,25 @@ def optimise_tour(
 
     coords_by_id = _coords_by_id(db, [s.id for s in stops])
 
+    # 'fixed' pins dated stops to their plan day; 'optimized' lets the solver
+    # choose days, constrained to region day-groups so one day never mixes
+    # far-apart areas.
+    pin_dates = config.respect_stop_dates and tour.date_mode == DateMode.fixed
+    days_by_stop: dict[int, list[date]] = {}
+    if not pin_dates and days:
+        days_by_stop = plan_region_days(
+            {
+                s.id: (
+                    coords_by_id[s.id],
+                    (s.service_minutes or config.default_service_minutes) * 60,
+                )
+                for s in stops
+                if s.id in coords_by_id
+            },
+            days,
+            config.max_day_span_km,
+        )
+
     schedulable: list[_Job] = []
     unassigned: list[UnassignedStop] = []
 
@@ -152,8 +183,13 @@ def optimise_tour(
             )
             continue
 
+        stop_days = days_by_stop.get(stop.id, days) if not pin_dates else days
+        if not pin_dates and not stop_days:
+            unassigned.append(UnassignedStop(stop_id=stop.id, reason=REASON_FAR_REGION))
+            continue
+
         service = (stop.service_minutes or config.default_service_minutes) * 60
-        windows = _job_windows(stop, days, service, config)
+        windows = _job_windows(stop, stop_days, service, config, pin_dates)
         if not windows:
             reason = REASON_NO_DAYS if not days else REASON_NO_WINDOW
             unassigned.append(UnassignedStop(stop_id=stop.id, reason=reason))
@@ -172,6 +208,7 @@ def optimise_tour(
         db.commit()
         return OptimiseResult(
             tour_id=tour.id,
+            date_mode=tour.date_mode,
             days=[
                 DaySummary(
                     date=d,
@@ -209,7 +246,12 @@ def optimise_tour(
         )
 
     db.commit()
-    return OptimiseResult(tour_id=tour.id, days=summaries, unassigned=unassigned)
+    return OptimiseResult(
+        tour_id=tour.id,
+        date_mode=tour.date_mode,
+        days=summaries,
+        unassigned=unassigned,
+    )
 
 
 @dataclass
@@ -231,13 +273,156 @@ def _coords_by_id(db: Session, stop_ids: list[int]) -> dict[int, Coordinate]:
     return {sid: (lon, lat) for sid, lon, lat in rows}
 
 
+# --- Region guardrail (date_mode='optimized') --------------------------------
+
+_EARTH_RADIUS_KM = 6371.0
+
+
+def _haversine_km(a: Coordinate, b: Coordinate) -> float:
+    lon1, lat1 = radians(a[0]), radians(a[1])
+    lon2, lat2 = radians(b[0]), radians(b[1])
+    h = (
+        sin((lat2 - lat1) / 2) ** 2
+        + cos(lat1) * cos(lat2) * sin((lon2 - lon1) / 2) ** 2
+    )
+    return 2 * _EARTH_RADIUS_KM * asin(sqrt(h))
+
+
+def _centroid(coords: list[Coordinate]) -> Coordinate:
+    return (
+        sum(c[0] for c in coords) / len(coords),
+        sum(c[1] for c in coords) / len(coords),
+    )
+
+
+def _cluster_by_proximity(coords: list[Coordinate], eps_km: float) -> list[list[int]]:
+    """Single-linkage clusters: index groups chained by hops of ≤ eps_km."""
+    parent = list(range(len(coords)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(coords)):
+        for j in range(i + 1, len(coords)):
+            if _haversine_km(coords[i], coords[j]) <= eps_km:
+                parent[find(i)] = find(j)
+
+    clusters: dict[int, list[int]] = {}
+    for i in range(len(coords)):
+        clusters.setdefault(find(i), []).append(i)
+    return list(clusters.values())
+
+
+def _allocate_days(workloads: list[int], day_count: int) -> list[int]:
+    """Days per group, for groups in workload-descending order.
+
+    Proportional to workload, at least 1 per group while days remain (keeping
+    a day back for each group still waiting); a group whose turn comes after
+    the days ran out gets 0 — its stops must be reported unassigned.
+    """
+    counts: list[int] = []
+    remaining_days = day_count
+    remaining_work = sum(workloads)
+    for index, work in enumerate(workloads):
+        groups_after = len(workloads) - index - 1
+        if remaining_days <= 0:
+            counts.append(0)
+            continue
+        share = round(remaining_days * work / remaining_work) if remaining_work else 1
+        reserve = min(groups_after, remaining_days - 1)
+        count = max(1, min(share, remaining_days - reserve))
+        counts.append(count)
+        remaining_days -= count
+        remaining_work -= work
+
+    # Rounding can leave spare days; hand them to groups that got days,
+    # biggest first (a zero-day group stays zero — no block position for it).
+    index = 0
+    while remaining_days > 0 and any(counts):
+        if counts[index % len(counts)] > 0:
+            counts[index % len(counts)] += 1
+            remaining_days -= 1
+        index += 1
+    return counts
+
+
+def plan_region_days(
+    stops: dict[int, tuple[Coordinate, int]],
+    days: list[date],
+    max_span_km: float,
+) -> dict[int, list[date]]:
+    """Split the week's days between geographic regions.
+
+    ``stops`` maps stop id -> ((lon, lat), service seconds). Stops are
+    clustered by proximity (single-linkage, eps = max_span_km / 4); clusters
+    whose centroids all lie within max_span_km of each other merge into a
+    day-group; each group gets a contiguous block of days sized by its share
+    of the service workload. The returned mapping gives every stop its allowed
+    days — an empty list means the stop's region lost the allocation (more
+    far-apart regions than days) and must be reported unassigned.
+    """
+    if not stops:
+        return {}
+
+    ids = list(stops)
+    coords = [stops[sid][0] for sid in ids]
+    clusters = _cluster_by_proximity(coords, max_span_km / 4)
+
+    def cluster_workload(cluster: list[int]) -> int:
+        return sum(stops[ids[i]][1] for i in cluster)
+
+    clusters.sort(key=cluster_workload, reverse=True)
+
+    # Greedy grouping: a cluster joins the first group it stays compatible
+    # with (its centroid within max_span_km of every member cluster's).
+    groups: list[dict] = []
+    for cluster in clusters:
+        centroid = _centroid([coords[i] for i in cluster])
+        workload = cluster_workload(cluster)
+        for group in groups:
+            if all(
+                _haversine_km(centroid, other) <= max_span_km
+                for other in group["centroids"]
+            ):
+                group["indices"].extend(cluster)
+                group["centroids"].append(centroid)
+                group["workload"] += workload
+                break
+        else:
+            groups.append(
+                {
+                    "indices": list(cluster),
+                    "centroids": [centroid],
+                    "workload": workload,
+                }
+            )
+
+    day_counts = _allocate_days([g["workload"] for g in groups], len(days))
+
+    allowed: dict[int, list[date]] = {}
+    cursor = 0
+    for group, count in zip(groups, day_counts, strict=True):
+        block = days[cursor : cursor + count]
+        cursor += count
+        for i in group["indices"]:
+            allowed[ids[i]] = block
+    return allowed
+
+
 def _job_windows(
-    stop: Stop, days: list[date], service: int, config: OptimiseConfig
+    stop: Stop,
+    days: list[date],
+    service: int,
+    config: OptimiseConfig,
+    pin_dates: bool,
 ) -> list[list[int]]:
-    # A stop dated by the plan is pinned to its day; the solver only orders it
-    # within that day. A stop whose date isn't a working day floats freely
-    # rather than becoming unschedulable.
-    if config.respect_stop_dates and stop.date is not None and stop.date in days:
+    # In fixed mode a stop dated by the plan is pinned to its day; the solver
+    # only orders it within that day. A stop whose date isn't a working day
+    # floats freely rather than becoming unschedulable.
+    if pin_dates and stop.date is not None and stop.date in days:
         days = [stop.date]
 
     windows: list[list[int]] = []

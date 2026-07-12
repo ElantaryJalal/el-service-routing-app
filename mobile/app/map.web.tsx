@@ -19,7 +19,8 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
-import { ApiError, api } from '../src/api/client';
+import { ApiError, api, type DateMode } from '../src/api/client';
+import { DateModeControl } from '../src/components/DateModeControl';
 import {
   composeOptimisedTour,
   dayColor,
@@ -122,6 +123,29 @@ export default function MapWebScreen() {
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [day, setDay] = useState<DayFilter>('all');
   const [showUnassigned, setShowUnassigned] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
+
+  async function changeDateMode(next: DateMode) {
+    if (modeBusy) return;
+    setModeBusy(true);
+    try {
+      await api.patchTour(tourId, { date_mode: next });
+      const [result, stops] = await Promise.all([
+        api.optimiseTour(tourId),
+        api.getStops(tourId),
+      ]);
+      const refreshed = composeOptimisedTour(result, stops);
+      await tourCache.save(refreshed);
+      setLoad({ state: 'ready', tour: refreshed });
+      setDay('all'); // day contents shifted; a kept index would mislead
+    } catch (err) {
+      // Keep the current schedule; mode changes need the backend.
+      const message = err instanceof ApiError ? err.message : String(err);
+      window.alert(`Could not change date mode: ${message}`);
+    } finally {
+      setModeBusy(false);
+    }
+  }
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
@@ -286,6 +310,12 @@ export default function MapWebScreen() {
               />
             ))}
         </ScrollView>
+
+        <DateModeControl
+          mode={tour!.date_mode}
+          busy={modeBusy}
+          onChange={changeDateMode}
+        />
       </View>
     </View>
   );

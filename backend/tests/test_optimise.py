@@ -5,7 +5,7 @@ OSRM matrix is injected (all-zero travel), so Vroom runs in matrix mode and
 neither OSRM nor the network is touched. Skipped when either service is down.
 """
 
-from datetime import date, time
+from datetime import date, time, timedelta
 
 import httpx
 import pytest
@@ -14,9 +14,9 @@ from geoalchemy2.elements import WKTElement
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.models.stop import Stop
-from app.models.tour import Tour
+from app.models.tour import DateMode, Tour
 from app.routing.vroom import VroomClient
-from app.services.optimiser import OptimiseConfig, optimise_tour
+from app.services.optimiser import REASON_FAR_REGION, OptimiseConfig, optimise_tour
 
 MONDAY = date(2026, 6, 29)
 FRIDAY = date(2026, 7, 3)
@@ -56,28 +56,35 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _make_tour(db, date_from, date_to, specs):
-    """specs: list of (service_minutes, closing_time). Returns (tour_id, [ids])."""
+def _make_tour(db, date_from, date_to, specs, date_mode=DateMode.fixed):
+    """specs: list of (service_minutes, closing_time) tuples, or dicts adding
+    optional lon/lat/date per stop. Returns (tour_id, [ids])."""
     tour = Tour(
         customer="Aldi Nord",
         calendar_week=27,
         date_from=date_from,
         date_to=date_to,
         status="confirmed",
+        date_mode=date_mode,
     )
     db.add(tour)
     db.flush()
     ids = []
-    for i, (service_minutes, closing_time) in enumerate(specs):
+    for i, spec in enumerate(specs):
+        if isinstance(spec, tuple):
+            spec = {"service_minutes": spec[0], "closing_time": spec[1]}
+        lon = spec.get("lon", 12.3 + i * 0.01)
+        lat = spec.get("lat", 51.3 + i * 0.01)
         stop = Stop(
             tour_id=tour.id,
             row_index=i,
             customer=f"Market {i}",
             status="confirmed",
             status_hint="pending",
-            service_minutes=service_minutes,
-            closing_time=closing_time,
-            geom=WKTElement(f"POINT({12.3 + i * 0.01} {51.3 + i * 0.01})", srid=4326),
+            date=spec.get("date"),
+            service_minutes=spec.get("service_minutes"),
+            closing_time=spec.get("closing_time"),
+            geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
         )
         db.add(stop)
         ids.append(stop)
@@ -91,8 +98,8 @@ def db():
     session = SessionLocal()
     created_tours: list[int] = []
 
-    def factory(date_from, date_to, specs):
-        tour_id, stop_ids = _make_tour(session, date_from, date_to, specs)
+    def factory(date_from, date_to, specs, **kwargs):
+        tour_id, stop_ids = _make_tour(session, date_from, date_to, specs, **kwargs)
         created_tours.append(tour_id)
         return tour_id, stop_ids
 
@@ -172,3 +179,117 @@ def test_overload_surfaces_unassigned(db):
         stop = session.get(Stop, u.stop_id)
         session.refresh(stop)
         assert stop.assigned_day is None
+
+
+# --- date_mode ---------------------------------------------------------------
+
+# Two areas far beyond the 120 km default guardrail (~440 km apart).
+LEIPZIG = (12.37, 51.34)
+AACHEN = (6.08, 50.77)
+
+
+def _dated_spec(day, lon_offset=0.0, base=LEIPZIG):
+    return {
+        "service_minutes": 60,
+        "closing_time": None,
+        "date": day,
+        "lon": base[0] + lon_offset,
+        "lat": base[1],
+    }
+
+
+def test_fixed_mode_reproduces_plan_dates(db):
+    session, factory = db
+    # Two markets per day, Mon-Wed, each pinned by the plan's Datum column.
+    plan_days = [MONDAY, MONDAY + timedelta(days=1), MONDAY + timedelta(days=2)]
+    specs = [
+        _dated_spec(day, lon_offset=i * 0.01)
+        for i, day in enumerate(d for d in plan_days for _ in range(2))
+    ]
+    tour_id, stop_ids = factory(MONDAY, FRIDAY, specs, date_mode=DateMode.fixed)
+
+    result = _optimise(session, tour_id)
+
+    assert result.date_mode == DateMode.fixed
+    assert result.unassigned == []
+    for sid, spec in zip(stop_ids, specs, strict=True):
+        stop = session.get(Stop, sid)
+        session.refresh(stop)
+        assert stop.assigned_day == spec["date"]
+
+
+def test_optimized_mode_moves_stops_off_their_plan_date(db):
+    session, factory = db
+    # 20 markets all dated Monday: pinned, only 12×60min fit the 12h day.
+    specs = [_dated_spec(MONDAY, lon_offset=i * 0.005) for i in range(20)]
+    tour_id, _ = factory(MONDAY, FRIDAY, specs, date_mode=DateMode.fixed)
+    overloaded = _optimise(session, tour_id)
+    assert len(overloaded.unassigned) > 0
+
+    # The same plan in optimized mode spreads across the week instead.
+    tour_id, _ = factory(MONDAY, FRIDAY, specs, date_mode=DateMode.optimized)
+    result = _optimise(session, tour_id)
+
+    assert result.date_mode == DateMode.optimized
+    assert result.unassigned == []
+    used_days = [d.date for d in result.days if d.stops]
+    assert len(used_days) >= 2
+    assert any(d != MONDAY for d in used_days)
+
+
+def test_optimized_mode_never_mixes_far_regions(db):
+    session, factory = db
+    # Six markets around Leipzig, six around Aachen, zero travel cost in the
+    # injected matrix — exactly the trap the guardrail must catch.
+    specs = [
+        {
+            "service_minutes": 60,
+            "closing_time": None,
+            "lon": base[0] + i * 0.01,
+            "lat": base[1],
+        }
+        for base in (LEIPZIG, AACHEN)
+        for i in range(6)
+    ]
+    tour_id, stop_ids = factory(MONDAY, FRIDAY, specs, date_mode=DateMode.optimized)
+    leipzig_ids = set(stop_ids[:6])
+    aachen_ids = set(stop_ids[6:])
+
+    result = _optimise(session, tour_id)
+
+    assert result.unassigned == []
+    for day in result.days:
+        ids = {s.stop_id for s in day.stops}
+        assert not (
+            ids & leipzig_ids and ids & aachen_ids
+        ), f"day {day.date} mixes regions {ids}"
+
+
+def test_optimized_mode_far_region_overflows_to_unassigned(db):
+    session, factory = db
+    # One working day but two far-apart regions: the smaller region can't get
+    # a day and must surface as unassigned rather than force an insane route.
+    specs = [
+        {
+            "service_minutes": 60,
+            "closing_time": None,
+            "lon": LEIPZIG[0] + i * 0.01,
+            "lat": LEIPZIG[1],
+        }
+        for i in range(2)
+    ] + [
+        {
+            "service_minutes": 60,
+            "closing_time": None,
+            "lon": AACHEN[0],
+            "lat": AACHEN[1],
+        }
+    ]
+    tour_id, stop_ids = factory(MONDAY, MONDAY, specs, date_mode=DateMode.optimized)
+
+    result = _optimise(session, tour_id)
+
+    assert [u.stop_id for u in result.unassigned] == [stop_ids[2]]
+    assert result.unassigned[0].reason == REASON_FAR_REGION
+    assigned = {s.stop_id for d in result.days for s in d.stops}
+    assert assigned == set(stop_ids[:2])

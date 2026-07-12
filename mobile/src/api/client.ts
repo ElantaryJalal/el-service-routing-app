@@ -15,9 +15,14 @@ type CommitResult = components['schemas']['CommitResult'];
 type OptimiseResult = components['schemas']['OptimiseResult'];
 type StopUpdate = components['schemas']['StopUpdate'];
 type StopRead = components['schemas']['StopRead'];
+type TourRead = components['schemas']['TourRead'];
+type TourUpdate = components['schemas']['TourUpdate'];
 
 /** Committed stop with address, task labels, and geocoded coordinate. */
 export type StopDetail = components['schemas']['StopDetail'];
+
+/** Whether the plan's dates bind ('fixed') or the optimiser assigns days. */
+export type DateMode = components['schemas']['DateMode'];
 
 // --- Provisional types (endpoints not yet in the backend OpenAPI) ----------
 // TODO(backend): implement POST /tours/extract, GET /tours/{id}/draft,
@@ -213,5 +218,14 @@ export const api = {
 
   optimiseTour(tourId: number): Promise<OptimiseResult> {
     return request(`/tours/${tourId}/optimise`, jsonInit('POST'));
+  },
+
+  getTour(tourId: number): Promise<TourRead> {
+    return request(`/tours/${tourId}`);
+  },
+
+  /** PATCH per-tour settings (date_mode). Re-run optimise afterwards. */
+  patchTour(tourId: number, fields: TourUpdate): Promise<TourRead> {
+    return request(`/tours/${tourId}`, jsonInit('PATCH', fields));
   },
 };

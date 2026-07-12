@@ -18,7 +18,10 @@ export const tourCache = {
     const raw = await AsyncStorage.getItem(key(tourId));
     if (!raw) return null;
     try {
-      return JSON.parse(raw) as OptimisedTour;
+      const tour = JSON.parse(raw) as OptimisedTour;
+      // Entries cached before the Date mode feature carry no date_mode.
+      tour.date_mode ??= 'fixed';
+      return tour;
     } catch {
       return null;
     }

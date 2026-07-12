@@ -30,6 +30,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tours/{tour_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Tour */
+        get: operations["get_tour_tours__tour_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Tour
+         * @description Change per-tour settings (currently date_mode). Switching date_mode
+         *     does not reschedule by itself — the client re-runs optimise after.
+         */
+        patch: operations["update_tour_tours__tour_id__patch"];
+        trace?: never;
+    };
     "/tours/{tour_id}/draft": {
         parameters: {
             query?: never;
@@ -159,6 +181,87 @@ export interface paths {
         patch: operations["update_stop_stops__stop_id__patch"];
         trace?: never;
     };
+    "/stops/{stop_id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Stop
+         * @description Mark a stop done. Idempotent: a repeat call (e.g. an offline-sync
+         *     retry) keeps the original completed_at unless force is set.
+         */
+        post: operations["complete_stop_stops__stop_id__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores/{store_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Store */
+        get: operations["get_store_stores__store_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores/{store_id}/attributes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Store Attributes */
+        patch: operations["update_store_attributes_stores__store_id__attributes_patch"];
+        trace?: never;
+    };
+    "/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Feedback
+         * @description List feedback, newest first, optionally filtered. Feedback is
+         *     append-only: there are deliberately no update/delete endpoints.
+         */
+        get: operations["list_feedback_feedback_get"];
+        put?: never;
+        /**
+         * Create Feedback
+         * @description Record after-visit feedback. Idempotent on client_uuid: an offline-sync
+         *     retry of an already-stored POST returns the existing row (200, not 201).
+         */
+        post: operations["create_feedback_feedback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -196,6 +299,16 @@ export interface components {
             /** Stops Enriched */
             stops_enriched: number;
         };
+        /**
+         * DateMode
+         * @description Whether stop dates from the plan are binding or a starting point.
+         *
+         *     fixed: stops stay pinned to their printed plan date (Datum governs; the
+         *     optimiser only sequences within each day). optimized: the optimiser may
+         *     move stops between days.
+         * @enum {string}
+         */
+        DateMode: "fixed" | "optimized";
         /** DayStop */
         DayStop: {
             /** Stop Id */
@@ -270,6 +383,62 @@ export interface components {
             /** Service Minutes */
             service_minutes?: number | null;
         };
+        /**
+         * FeedbackCreate
+         * @description One piece of after-visit feedback. store_id/tour_id are derived from
+         *     the stop server-side so the row can't contradict itself. client_uuid is
+         *     the client-generated idempotency key: offline sync may retry the same
+         *     POST, which must return the existing row instead of creating another.
+         */
+        FeedbackCreate: {
+            /** Stop Id */
+            stop_id: number;
+            /** Client Uuid */
+            client_uuid: string;
+            /** Employee */
+            employee?: string | null;
+            /**
+             * Tags
+             * @default []
+             */
+            tags: components["schemas"]["FeedbackTag"][];
+            /** Note */
+            note?: string | null;
+            /** Photo Path */
+            photo_path?: string | null;
+        };
+        /** FeedbackRead */
+        FeedbackRead: {
+            /** Id */
+            id: number;
+            /** Store Id */
+            store_id: number | null;
+            /** Tour Id */
+            tour_id: number | null;
+            /** Stop Id */
+            stop_id: number | null;
+            /** Employee */
+            employee: string | null;
+            /** Tags */
+            tags: string[];
+            /** Note */
+            note: string | null;
+            /** Photo Path */
+            photo_path: string | null;
+            /** Client Uuid */
+            client_uuid: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * FeedbackTag
+         * @description Controlled vocabulary for visit feedback tags.
+         * @enum {string}
+         */
+        FeedbackTag: "parking_full" | "access_problem" | "took_longer" | "store_condition" | "other";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -285,10 +454,23 @@ export interface components {
         OptimiseResult: {
             /** Tour Id */
             tour_id: number;
+            date_mode: components["schemas"]["DateMode"];
             /** Days */
             days: components["schemas"]["DaySummary"][];
             /** Unassigned */
             unassigned: components["schemas"]["UnassignedStop"][];
+        };
+        /**
+         * StopCompleteRequest
+         * @description Body for POST /stops/{id}/complete. force re-stamps completed_at even
+         *     when the stop was already completed (normally a repeat call is a no-op).
+         */
+        StopCompleteRequest: {
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
         };
         /**
          * StopDetail
@@ -312,6 +494,8 @@ export interface components {
             hours_source: components["schemas"]["HoursSource"];
             /** Status */
             status: string;
+            /** Completed At */
+            completed_at: string | null;
             /** Street */
             street: string | null;
             /** Postal Code */
@@ -344,6 +528,8 @@ export interface components {
             hours_source: components["schemas"]["HoursSource"];
             /** Status */
             status: string;
+            /** Completed At */
+            completed_at: string | null;
         };
         /**
          * StopUpdate
@@ -357,12 +543,92 @@ export interface components {
             /** Service Minutes */
             service_minutes?: number | null;
         };
+        /**
+         * StoreAttributesUpdate
+         * @description Crowdsourced attribute capture. Only provided fields are applied
+         *     (PATCH); an explicit null clears an attribute back to "not captured".
+         */
+        StoreAttributesUpdate: {
+            size?: components["schemas"]["StoreSize"] | null;
+            /** In Mall */
+            in_mall?: boolean | null;
+            /** Has Parking */
+            has_parking?: boolean | null;
+            /** Updated By */
+            updated_by?: string | null;
+        };
+        /** StoreRead */
+        StoreRead: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
+            /** Street */
+            street: string | null;
+            /** Postal Code */
+            postal_code: string | null;
+            /** City */
+            city: string | null;
+            /** Lat */
+            lat: number | null;
+            /** Lng */
+            lng: number | null;
+            /** Default Tasks */
+            default_tasks: string[] | null;
+            /** Default Service Minutes */
+            default_service_minutes: number | null;
+            size: components["schemas"]["StoreSize"] | null;
+            /** In Mall */
+            in_mall: boolean | null;
+            /** Has Parking */
+            has_parking: boolean | null;
+            /** Attributes Updated At */
+            attributes_updated_at: string | null;
+            /** Attributes Updated By */
+            attributes_updated_by: string | null;
+            /** Attributes Complete */
+            attributes_complete: boolean;
+        };
+        /**
+         * StoreSize
+         * @enum {string}
+         */
+        StoreSize: "small" | "medium" | "large";
         /** TourDraft */
         TourDraft: {
             /** Tour Id */
             tour_id: number;
             /** Stops */
             stops: components["schemas"]["DraftStop"][];
+        };
+        /** TourRead */
+        TourRead: {
+            /** Id */
+            id: number;
+            /** Customer */
+            customer: string;
+            /** Calendar Week */
+            calendar_week: number;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            /** Status */
+            status: string;
+            date_mode: components["schemas"]["DateMode"];
+        };
+        /**
+         * TourUpdate
+         * @description Per-tour settings. Only provided fields are applied (PATCH).
+         */
+        TourUpdate: {
+            date_mode?: components["schemas"]["DateMode"] | null;
         };
         /** UnassignedStop */
         UnassignedStop: {
@@ -413,6 +679,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TourDraft"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tour_tours__tour_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_tour_tours__tour_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TourUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourRead"];
                 };
             };
             /** @description Validation Error */
@@ -608,6 +940,173 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StopRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_stop_stops__stop_id__complete_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StopCompleteRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_store_stores__store_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                store_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_store_attributes_stores__store_id__attributes_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                store_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StoreAttributesUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_feedback_feedback_get: {
+        parameters: {
+            query?: {
+                store_id?: number | null;
+                tour_id?: number | null;
+                stop_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_feedback_feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackRead"];
                 };
             };
             /** @description Validation Error */

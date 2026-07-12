@@ -4,7 +4,7 @@
  * detail (coordinate, address, tasks, closing time). This composed shape is what
  * we cache for offline use — see src/state/tourCache.ts.
  */
-import type { StopDetail } from '../api/client';
+import type { DateMode, StopDetail } from '../api/client';
 import type { components } from '../api/types';
 
 type OptimiseResult = components['schemas']['OptimiseResult'];
@@ -49,6 +49,8 @@ export interface UnassignedDetail {
 
 export interface OptimisedTour {
   tour_id: number;
+  /** The mode this schedule was computed under (fixed = plan dates bind). */
+  date_mode: DateMode;
   days: OptimisedDay[];
   unassigned: UnassignedDetail[];
   /** epoch ms when this was composed/cached. */
@@ -161,5 +163,11 @@ export function composeOptimisedTour(
     };
   });
 
-  return { tour_id: result.tour_id, days, unassigned, cached_at: Date.now() };
+  return {
+    tour_id: result.tour_id,
+    date_mode: result.date_mode,
+    days,
+    unassigned,
+    cached_at: Date.now(),
+  };
 }

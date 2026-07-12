@@ -14,6 +14,7 @@ from app.models.tour import Tour
 from app.schemas.draft import DraftStop, DraftStopUpdate, TourDraft
 from app.schemas.optimise import OptimiseResult
 from app.schemas.stop import CommitResult, StopDetail
+from app.schemas.tour import TourRead, TourUpdate
 from app.services.extraction import extract_tour, normalize_media_type
 from app.services.extraction_local import extract_tour_local
 from app.services.extraction_ollama import extract_tour_ollama
@@ -158,6 +159,36 @@ def extract(
 
     db.commit()
     return _build_draft(db, tour.id)
+
+
+@router.get("/{tour_id}", response_model=TourRead)
+def get_tour(
+    tour_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> Tour:
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    return tour
+
+
+@router.patch("/{tour_id}", response_model=TourRead)
+def update_tour(
+    tour_id: int,
+    update: TourUpdate,
+    db: Annotated[Session, Depends(get_db)],
+) -> Tour:
+    """Change per-tour settings (currently date_mode). Switching date_mode
+    does not reschedule by itself — the client re-runs optimise after."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+
+    if update.date_mode is not None:
+        tour.date_mode = update.date_mode
+    db.commit()
+    db.refresh(tour)
+    return tour
 
 
 @router.get("/{tour_id}/draft", response_model=TourDraft)

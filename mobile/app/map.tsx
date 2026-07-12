@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Modal,
   Platform,
@@ -14,7 +15,8 @@ import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 
-import { ApiError, api } from '../src/api/client';
+import { ApiError, api, type DateMode } from '../src/api/client';
+import { DateModeControl } from '../src/components/DateModeControl';
 import {
   composeOptimisedTour,
   dayColor,
@@ -74,6 +76,30 @@ export default function MapScreen() {
   const [day, setDay] = useState<DayFilter>('all');
   const [selected, setSelected] = useState<OptimisedStop | null>(null);
   const [showUnassigned, setShowUnassigned] = useState(false);
+  const [modeBusy, setModeBusy] = useState(false);
+
+  async function changeDateMode(next: DateMode) {
+    if (modeBusy) return;
+    setModeBusy(true);
+    try {
+      await api.patchTour(tourId, { date_mode: next });
+      const [result, stops] = await Promise.all([
+        api.optimiseTour(tourId),
+        api.getStops(tourId),
+      ]);
+      const refreshed = composeOptimisedTour(result, stops);
+      await tourCache.save(refreshed);
+      setLoad({ state: 'ready', tour: refreshed });
+      setDay('all'); // day contents shifted; a kept index would mislead
+      setSelected(null);
+    } catch (err) {
+      // Keep the current schedule; mode changes need the backend.
+      const message = err instanceof ApiError ? err.message : String(err);
+      Alert.alert('Could not change date mode', message);
+    } finally {
+      setModeBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!Number.isFinite(tourId)) {
@@ -218,6 +244,12 @@ export default function MapScreen() {
             />
           ))}
         </ScrollView>
+
+        <DateModeControl
+          mode={tour!.date_mode}
+          busy={modeBusy}
+          onChange={changeDateMode}
+        />
       </View>
 
       {/* Bottom overlay: tapped-stop detail */}
