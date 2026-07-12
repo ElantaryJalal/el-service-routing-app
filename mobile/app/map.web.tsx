@@ -134,11 +134,11 @@ export default function MapWebScreen() {
     }
     let alive = true;
     (async () => {
+      // Offline-first, then revalidate: paint the cached schedule immediately,
+      // but always try to refresh from the network — otherwise a re-optimised
+      // plan never reaches the screen.
       const cached = await tourCache.load(tourId);
-      if (cached) {
-        if (alive) setLoad({ state: 'ready', tour: cached });
-        return;
-      }
+      if (cached && alive) setLoad({ state: 'ready', tour: cached });
       try {
         const [result, stops] = await Promise.all([
           api.optimiseTour(tourId),
@@ -148,8 +148,12 @@ export default function MapWebScreen() {
         await tourCache.save(tour);
         if (alive) setLoad({ state: 'ready', tour });
       } catch (err) {
-        const message = err instanceof ApiError ? err.message : String(err);
-        if (alive) setLoad({ state: 'error', message });
+        // Offline (or backend down): stay on the cached schedule if we have
+        // one; only surface the error on a cold open.
+        if (!cached && alive) {
+          const message = err instanceof ApiError ? err.message : String(err);
+          setLoad({ state: 'error', message });
+        }
       }
     })();
     return () => {
