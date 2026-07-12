@@ -5,10 +5,15 @@ market as a job with one time window per day. Time is expressed as absolute
 unix seconds throughout, matching the OSRM duration matrix (also seconds).
 
 Key modelling choices:
-- Vehicles have NO start/end (markets-only) and a time_window bounded to their
-  own day, so the solver's choice of vehicle == choice of day.
+- The first working day starts at the company base (settings.default_start_*,
+  geocoded via the cached geocoder) with real travel cost, so day 1 is routed
+  as the actual drive out from HQ. Later days have NO start/end (the crew
+  overnights in hotels along the route), and every vehicle's time_window is
+  bounded to its own day, so the solver's choice of vehicle == choice of day.
 - A job carries one window per working day. Only the window on the vehicle's own
   day overlaps that vehicle's time_window, so picking a vehicle picks the day.
+- A stop dated by the plan (respect_stop_dates) gets only its own day's window:
+  the plan's Datum column decides the day, the solver only sequences within it.
 - Vroom time windows constrain when *service starts*. To force "done before the
   store closes", each day's window end is `close - service`, not `close`.
 - The OSRM matrix is fetched explicitly and passed to Vroom (matrix mode); the
@@ -30,6 +35,7 @@ from app.models.tour import Tour
 from app.routing.osrm import OSRMClient
 from app.routing.vroom import VroomClient
 from app.schemas.optimise import DayStop, DaySummary, OptimiseResult, UnassignedStop
+from app.services.geocoding import geocode_address
 from app.services.scheduling import effective_window
 
 Coordinate = tuple[float, float]  # (lon, lat)
@@ -47,6 +53,7 @@ class OptimiseConfig:
     default_service_minutes: int
     skip_weekdays: set[int]
     near_limit_seconds: int
+    respect_stop_dates: bool = True
 
     @classmethod
     def from_settings(cls) -> OptimiseConfig:
@@ -56,6 +63,7 @@ class OptimiseConfig:
             default_service_minutes=settings.default_service_minutes,
             skip_weekdays=settings.skip_weekday_set,
             near_limit_seconds=settings.near_limit_minutes * 60,
+            respect_stop_dates=settings.respect_stop_dates,
         )
 
 
@@ -178,7 +186,18 @@ def optimise_tour(
             unassigned=unassigned,
         )
 
-    problem = _build_problem(schedulable, days, config, matrix_provider)
+    # The week departs from the company base; a failed geocode degrades to the
+    # old open-ended start rather than blocking optimisation.
+    depot_coord = geocode_address(
+        db,
+        settings.default_start_street,
+        settings.default_start_postal_code,
+        settings.default_start_city,
+    )
+
+    problem = _build_problem(
+        schedulable, days, config, matrix_provider, depot_coord=depot_coord
+    )
     solution = vroom_client.solve(problem)
 
     stop_by_id = {job.stop.id: job.stop for job in schedulable}
@@ -215,6 +234,12 @@ def _coords_by_id(db: Session, stop_ids: list[int]) -> dict[int, Coordinate]:
 def _job_windows(
     stop: Stop, days: list[date], service: int, config: OptimiseConfig
 ) -> list[list[int]]:
+    # A stop dated by the plan is pinned to its day; the solver only orders it
+    # within that day. A stop whose date isn't a working day floats freely
+    # rather than becoming unschedulable.
+    if config.respect_stop_dates and stop.date is not None and stop.date in days:
+        days = [stop.date]
+
     windows: list[list[int]] = []
     for day in days:
         eff_open, eff_close = effective_window(
@@ -233,22 +258,34 @@ def _build_problem(
     days: list[date],
     config: OptimiseConfig,
     matrix_provider: MatrixProvider,
+    *,
+    depot_coord: Coordinate | None = None,
 ) -> dict:
-    matrix = matrix_provider([job.coord for job in jobs])
+    # The real depot (company base) travels at actual cost, so it joins the
+    # OSRM matrix; the first day starts there.
+    coords = [job.coord for job in jobs]
+    if depot_coord is not None:
+        coords = coords + [depot_coord]
+    matrix = matrix_provider(coords)
+    base_index = len(matrix) - 1 if depot_coord is not None else None
 
     # Vroom requires every vehicle to have a start or end, so a truly depot-less
     # vehicle is rejected. We append a virtual depot with zero travel to/from
-    # every job and use it as an open-ended start: leaving it costs nothing, so
-    # it has no effect on the plan or on reported drive time.
-    depot_index = len(matrix)
+    # every point and use it as an open-ended start: leaving it costs nothing,
+    # so it has no effect on the plan or on reported drive time.
+    free_index = len(matrix)
     matrix = [list(row) + [0] for row in matrix]
-    matrix.append([0] * (depot_index + 1))
+    matrix.append([0] * (free_index + 1))
 
     vehicles = [
         {
             "id": index,
             "profile": "car",
-            "start_index": depot_index,
+            # Day 1 departs from the company base; later days start wherever
+            # the crew's hotel is, modelled as a free start.
+            "start_index": (
+                base_index if index == 0 and base_index is not None else free_index
+            ),
             "time_window": [
                 _epoch(day, config.working_start),
                 _epoch(day, config.working_end),

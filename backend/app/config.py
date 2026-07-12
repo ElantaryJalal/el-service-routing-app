@@ -40,6 +40,17 @@ class Settings(BaseSettings):
     cors_allow_origins: str = "*"
 
     # --- Optimiser inputs ---
+    # Where every tour week begins: the company base. The first working day's
+    # route starts here; later days start open-ended (the crew overnights in
+    # hotels along the route).
+    default_start_label: str = "EL Service GmbH — Am Business Park"
+    default_start_street: str = "Werner-Heisenberg-Straße 10"
+    default_start_postal_code: str = "52477"
+    default_start_city: str = "Alsdorf"
+    # When a stop carries a date (extracted from the plan's Datum column), pin
+    # it to that day and only optimise the sequence within the day. Stops
+    # without a date may still float to any working day.
+    respect_stop_dates: bool = True
     working_day_start: time = time(7, 0)
     working_day_end: time = time(19, 0)
     default_service_minutes: int = 60
