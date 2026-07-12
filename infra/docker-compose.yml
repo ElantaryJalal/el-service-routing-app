@@ -19,8 +19,10 @@ services:
       retries: 5
 
   # OSRM routing engine (MLD pipeline, car profile).
-  # Requires pre-processed data in ./osrm-data — see README.md ("Data prep").
+  # Requires pre-processed data in $OSRM_DATA_DIR — see README.md ("Data prep").
   # OSRM_FILE is the base name of the .osrm dataset (default: region).
+  # OSRM_DATA_DIR overrides the host data directory (e.g. a WSL-native path
+  # for large country-wide datasets that don't fit on the Windows drive).
   osrm:
     image: osrm/osrm-backend:latest
     container_name: el_service_osrm
@@ -28,7 +30,7 @@ services:
       osrm-routed --algorithm mld --max-table-size 2000
       /data/${OSRM_FILE:-region}.osrm
     volumes:
-      - ./osrm-data:/data
+      - ${OSRM_DATA_DIR:-./osrm-data}:/data
     ports:
       - "${OSRM_HOST_PORT:-5000}:5000"
     restart: unless-stopped
