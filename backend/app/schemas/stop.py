@@ -1,4 +1,4 @@
-from datetime import time
+from datetime import datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -13,6 +13,13 @@ class StopUpdate(BaseModel):
     service_minutes: int | None = Field(default=None, ge=30, le=600)
 
 
+class StopCompleteRequest(BaseModel):
+    """Body for POST /stops/{id}/complete. force re-stamps completed_at even
+    when the stop was already completed (normally a repeat call is a no-op)."""
+
+    force: bool = False
+
+
 class StopRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -24,6 +31,7 @@ class StopRead(BaseModel):
     service_minutes: int | None
     hours_source: HoursSource
     status: str
+    completed_at: datetime | None
 
 
 class StopDetail(StopRead):

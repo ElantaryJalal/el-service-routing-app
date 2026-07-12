@@ -271,6 +271,7 @@ def list_stops(
                 service_minutes=stop.service_minutes,
                 hours_source=stop.hours_source,
                 status=stop.status,
+                completed_at=stop.completed_at,
                 street=stop.street,
                 postal_code=stop.postal_code,
                 city=stop.city,

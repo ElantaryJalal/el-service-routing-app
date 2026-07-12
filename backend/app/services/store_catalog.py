@@ -25,8 +25,24 @@ _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
 # Minimum blended score (name similarity + locality boost) to accept a match.
 MATCH_THRESHOLD = 0.6
 
-# Chain/format words that don't distinguish one store from another.
-_GENERIC_NAME_TOKENS = {"aldi", "markt", "supermarkt", "nord", "sud", "sued", "gmbh"}
+# Chain/format words that don't distinguish one store from another. Street-type
+# words are here because aliases often hold full addresses ("Georg-Schwarz-Str.
+# 92-96, Leipzig"): "str"/"weg" would otherwise identify a store to any row that
+# merely contains an address.
+_GENERIC_NAME_TOKENS = {
+    "aldi",
+    "markt",
+    "supermarkt",
+    "nord",
+    "sud",
+    "sued",
+    "gmbh",
+    "str",
+    "strasse",
+    "weg",
+    "allee",
+    "platz",
+}
 
 
 def _normalize(value: str | None) -> str:
@@ -41,7 +57,7 @@ def _distinctive_tokens(name: str) -> list[str]:
     return [
         tok
         for tok in _normalize(name).split()
-        if len(tok) >= 3 and tok not in _GENERIC_NAME_TOKENS
+        if len(tok) >= 3 and not tok.isdigit() and tok not in _GENERIC_NAME_TOKENS
     ]
 
 
@@ -135,7 +151,10 @@ def match_store_in_text(
         fuzzy_name = 0.0
         for name in [store.name, *(store.aliases or [])]:
             for token in _distinctive_tokens(name):
-                if token in norm:
+                # Whole-token equality; substring only for tokens long enough
+                # not to hide inside unrelated words ("leipzig" still hits the
+                # OCR-merged "leipzigleutzsch", but "see" can't hit "kasse").
+                if token in line_tokens or (len(token) >= 5 and token in norm):
                     exact_hit = True
                     fuzzy_name = 1.0
                 else:

@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import stops_router, tours_router
+from app.api import feedback_router, stops_router, stores_router, tours_router
 from app.config import settings
 from app.db import engine
 
@@ -25,6 +25,8 @@ app.add_middleware(
 
 app.include_router(tours_router)
 app.include_router(stops_router)
+app.include_router(stores_router)
+app.include_router(feedback_router)
 
 
 @app.get("/health")

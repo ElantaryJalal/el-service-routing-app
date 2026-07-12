@@ -1,12 +1,20 @@
+import enum
 from datetime import datetime
 
 from geoalchemy2 import Geometry, WKBElement
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db import Base
+
+
+class StoreSize(enum.StrEnum):
+    small = "small"
+    medium = "medium"
+    large = "large"
 
 
 class Store(Base):
@@ -32,6 +40,30 @@ class Store(Base):
     )
     default_tasks: Mapped[list[str] | None] = mapped_column(JSONB)
     default_service_minutes: Mapped[int | None] = mapped_column(Integer)
+    # Crowdsourced store attributes (P3+): null means "not captured yet", so the
+    # mobile app knows to prompt the crew. Set via PATCH /stores/{id}/attributes.
+    size: Mapped[StoreSize | None] = mapped_column(
+        SAEnum(
+            StoreSize,
+            name="store_size",
+            values_callable=lambda e: [m.value for m in e],
+        )
+    )
+    in_mall: Mapped[bool | None] = mapped_column(Boolean)
+    has_parking: Mapped[bool | None] = mapped_column(Boolean)
+    attributes_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    attributes_updated_by: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+    @property
+    def attributes_complete(self) -> bool:
+        """All crowdsourced attributes captured — nothing left to prompt for."""
+        return (
+            self.size is not None
+            and self.in_mall is not None
+            and self.has_parking is not None
+        )

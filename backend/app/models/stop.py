@@ -76,6 +76,10 @@ class Stop(Base):
     status: Mapped[str] = mapped_column(
         String, nullable=False, server_default="unconfirmed"
     )
+    # Source of truth for "done" (status/status_hint are display-oriented).
+    # Set once via POST /stops/{id}/complete; re-completing is a no-op unless
+    # forced.
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
