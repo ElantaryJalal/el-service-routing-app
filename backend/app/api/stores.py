@@ -10,7 +10,13 @@ from app.models.store import Store
 from app.models.tour import Tour
 from app.models.visit_feedback import VisitFeedback
 from app.schemas.feedback import FeedbackRead
-from app.schemas.store import StoreAttributesUpdate, StoreRead, StoreVisit
+from app.schemas.store import (
+    StoreAttributesUpdate,
+    StoreRead,
+    StoreServiceTimeRead,
+    StoreVisit,
+)
+from app.services.service_times import recompute_service_times
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 
@@ -37,6 +43,9 @@ def _store_read(db: Session, store: Store) -> StoreRead:
         lng=lon,
         default_tasks=store.default_tasks,
         default_service_minutes=store.default_service_minutes,
+        learned_service_minutes=store.learned_service_minutes,
+        service_time_samples=store.service_time_samples,
+        service_times_updated_at=store.service_times_updated_at,
         size=store.size,
         in_mall=store.in_mall,
         has_parking=store.has_parking,
@@ -65,6 +74,26 @@ def list_stores(
     elif needs_attributes is False:
         query = query.where(~missing)
     return [_store_read(db, store) for store in db.scalars(query)]
+
+
+@router.post("/service-times/recompute", response_model=list[StoreServiceTimeRead])
+def recompute_store_service_times(
+    db: Annotated[Session, Depends(get_db)],
+) -> list[StoreServiceTimeRead]:
+    """Re-learn every store's service duration from completion history (P4).
+
+    Recomputes from scratch on each call — history is small — and needs OSRM
+    for the drive legs between completed stops. Triggered from the office's
+    stores page; new tours pick the learned values up at extraction time."""
+    return [
+        StoreServiceTimeRead(
+            store_id=entry.store_id,
+            name=entry.name,
+            samples=entry.samples,
+            learned_service_minutes=entry.learned_service_minutes,
+        )
+        for entry in recompute_service_times(db)
+    ]
 
 
 @router.get("/{store_id}", response_model=StoreRead)

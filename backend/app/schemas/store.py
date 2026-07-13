@@ -31,6 +31,15 @@ class StoreVisit(BaseModel):
     completed_at: datetime | None
 
 
+class StoreServiceTimeRead(BaseModel):
+    """Per-store outcome of a service-time recompute run."""
+
+    store_id: int
+    name: str
+    samples: int
+    learned_service_minutes: int | None
+
+
 class StoreRead(BaseModel):
     id: int
     name: str
@@ -41,6 +50,10 @@ class StoreRead(BaseModel):
     lng: float | None
     default_tasks: list[str] | None
     default_service_minutes: int | None
+    # Learned from completion history (P4); null until enough samples exist.
+    learned_service_minutes: int | None
+    service_time_samples: int
+    service_times_updated_at: datetime | None
     size: StoreSize | None
     in_mall: bool | None
     has_parking: bool | None

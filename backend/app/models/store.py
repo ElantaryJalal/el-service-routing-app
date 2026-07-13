@@ -40,6 +40,18 @@ class Store(Base):
     )
     default_tasks: Mapped[list[str] | None] = mapped_column(JSONB)
     default_service_minutes: Mapped[int | None] = mapped_column(Integer)
+    # Learned from completion history (P4, services.service_times): the median
+    # observed service duration, set only once enough samples exist. Preferred
+    # over default_service_minutes wherever a service estimate is needed.
+    learned_service_minutes: Mapped[int | None] = mapped_column(Integer)
+    # How many usable observations the last recompute found (kept even below
+    # the learning threshold, so the office sees data accruing).
+    service_time_samples: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    service_times_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     # Crowdsourced store attributes (P3+): null means "not captured yet", so the
     # mobile app knows to prompt the crew. Set via PATCH /stores/{id}/attributes.
     size: Mapped[StoreSize | None] = mapped_column(

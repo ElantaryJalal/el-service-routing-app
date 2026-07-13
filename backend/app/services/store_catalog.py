@@ -216,8 +216,13 @@ def enrich_stop_from_store(stop, store: Store) -> None:
             if label:
                 stop.tasks.append(Task(task_type=label, raw_label=label))
 
-    if stop.service_minutes is None and store.default_service_minutes is not None:
-        stop.service_minutes = store.default_service_minutes
+    # The learned median from completion history (P4) beats the hand-set
+    # default: each week's plan is extracted fresh, so this is where past
+    # weeks' actual durations flow into the next tour's schedule.
+    if stop.service_minutes is None:
+        catalog_minutes = store.learned_service_minutes or store.default_service_minutes
+        if catalog_minutes is not None:
+            stop.service_minutes = catalog_minutes
 
     if filled and stop.confidence:
         stop.confidence = {
