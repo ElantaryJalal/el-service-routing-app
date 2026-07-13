@@ -239,6 +239,38 @@ export const api = {
     return request(`/tours/${tourId}/optimise`, jsonInit('POST'));
   },
 
+  /**
+   * Mid-week re-plan: completed stops keep their history; everything still
+   * open (including stops stranded on earlier days) is redistributed over
+   * the days from `fromDate` on, starting from the last completed stop.
+   */
+  replanTour(tourId: number, fromDate: string): Promise<OptimiseResult> {
+    return request(
+      `/tours/${tourId}/optimise`,
+      jsonInit('POST', { scope: 'remaining', from_date: fromDate }),
+    );
+  },
+
+  /**
+   * The stored schedule without re-solving — what the map should load.
+   * (POST optimise on read would overwrite manual edits and mid-week state.)
+   */
+  getPlan(tourId: number): Promise<OptimiseResult> {
+    return request(`/tours/${tourId}/plan`);
+  },
+
+  /**
+   * Manually move a stop to another day (appended at the end), or take it
+   * off the plan with `assignedDay = null`. The edit sticks until the next
+   * optimise/re-plan run.
+   */
+  moveStopPlan(stopId: number, assignedDay: string | null): Promise<StopRead> {
+    return request(
+      `/stops/${stopId}/plan`,
+      jsonInit('PATCH', { assigned_day: assignedDay }),
+    );
+  },
+
   getTour(tourId: number): Promise<TourRead> {
     return request(`/tours/${tourId}`);
   },

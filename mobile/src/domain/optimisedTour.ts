@@ -13,8 +13,8 @@ type HoursSource = components['schemas']['HoursSource'];
 export interface OptimisedStop {
   stop_id: number;
   sequence: number;
-  /** ETA as HH:MM:SS (local, from the backend). */
-  eta: string;
+  /** ETA as HH:MM:SS (local); null after a manual move until re-optimised. */
+  eta: string | null;
   assigned_day: string; // ISO date of the day this stop belongs to
   dayIndex: number;
   customer: string | null;
@@ -112,7 +112,7 @@ export function timeToMinutes(time: string | null): number | null {
  * closing time — the risky, must-schedule-early case worth flagging.
  */
 export function etaNearClosing(
-  eta: string,
+  eta: string | null,
   closing: string | null,
   withinMin = 30,
 ): boolean {

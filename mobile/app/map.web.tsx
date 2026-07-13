@@ -25,6 +25,7 @@ import {
   type CompletionSync,
 } from '../src/components/CompletionSheet';
 import { DateModeControl } from '../src/components/DateModeControl';
+import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
 import {
   bumpStoreFeedbackCount,
@@ -118,7 +119,7 @@ function popupHtml(s: OptimisedStop, pendingSync: boolean): string {
       ${address ? `<div style="color:#666;font-size:12px;margin-bottom:4px">${address}</div>` : ''}
       <div style="font-size:12px;margin:2px 0">
         <b>${formatDay(s.assigned_day)}</b> · #${s.sequence} ·
-        <span style="${etaStyle}">ETA ${toHHMM(s.eta)}</span>
+        <span style="${etaStyle}">ETA ${s.eta ? toHHMM(s.eta) : '—'}</span>
         ${s.closing_time ? ` · closes ${toHHMM(s.closing_time)}` : ''}
         ${s.service_minutes != null ? ` · ${s.service_minutes} min` : ''}
       </div>
@@ -135,13 +136,19 @@ function popupHtml(s: OptimisedStop, pendingSync: boolean): string {
              </button>`
           : ''
       }
-      <div style="display:flex;gap:6px;align-items:center">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <a href="${nav}" target="_blank" rel="noopener"
            style="display:inline-block;background:#1f6feb;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>
         <button data-action="toggle-complete" type="button"
                 style="background:${s.completed_at ? '#f1f3f5' : '#1a7f37'};color:${s.completed_at ? '#555' : '#fff'};border:1px solid ${s.completed_at ? '#ccc' : '#1a7f37'};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
           ${s.completed_at ? 'Mark as not done' : 'Mark done ✓'}
         </button>
+        ${
+          s.completed_at
+            ? ''
+            : `<button data-action="move-stop" type="button"
+                style="background:#f1f3f5;color:#333;border:1px solid #ccc;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Move day…</button>`
+        }
       </div>
     </div>`;
 }
@@ -162,6 +169,9 @@ export default function MapWebScreen() {
     storeId: number;
     title: string;
   } | null>(null);
+  const [replanOpen, setReplanOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<OptimisedStop | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
   const outboxStatus = useOutboxStatus();
 
   /** Apply a local tour change and persist it to the offline cache. */
@@ -210,18 +220,25 @@ export default function MapWebScreen() {
     }
   }
 
+  /** Refetch the stored plan (never re-solves) and repaint + recache it. */
+  async function refreshPlan(): Promise<OptimisedTour> {
+    const [result, stops] = await Promise.all([
+      api.getPlan(tourId),
+      api.getStops(tourId),
+    ]);
+    const refreshed = composeOptimisedTour(result, stops);
+    await tourCache.save(refreshed);
+    setLoad({ state: 'ready', tour: refreshed });
+    return refreshed;
+  }
+
   async function changeDateMode(next: DateMode) {
     if (modeBusy) return;
     setModeBusy(true);
     try {
       await api.patchTour(tourId, { date_mode: next });
-      const [result, stops] = await Promise.all([
-        api.optimiseTour(tourId),
-        api.getStops(tourId),
-      ]);
-      const refreshed = composeOptimisedTour(result, stops);
-      await tourCache.save(refreshed);
-      setLoad({ state: 'ready', tour: refreshed });
+      await api.optimiseTour(tourId);
+      await refreshPlan();
       setDay('all'); // day contents shifted; a kept index would mislead
     } catch (err) {
       // Keep the current schedule; mode changes need the backend.
@@ -232,9 +249,50 @@ export default function MapWebScreen() {
     }
   }
 
+  /** Mid-week re-plan: unfinished stops spread over `fromDate` onwards. */
+  async function replanFrom(fromDate: string) {
+    setPlanBusy(true);
+    try {
+      const result = await api.replanTour(tourId, fromDate);
+      await refreshPlan();
+      setReplanOpen(false);
+      setDay('all');
+      if (result.unassigned.length > 0) {
+        window.alert(
+          `${result.unassigned.length} stop${result.unassigned.length === 1 ? '' : 's'} don't fit into the remaining days — see the banner for details.`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      window.alert(`Could not re-plan: ${message}`);
+    } finally {
+      setPlanBusy(false);
+    }
+  }
+
+  /** Manual edit: move a stop to a day (end of it) or off the plan. */
+  async function moveStopTo(stop: OptimisedStop, dayValue: string | null) {
+    setPlanBusy(true);
+    try {
+      await api.moveStopPlan(stop.stop_id, dayValue);
+      await refreshPlan();
+      setMoveTarget(null);
+      setDay('all');
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      window.alert(`Could not move the stop: ${message}`);
+    } finally {
+      setPlanBusy(false);
+    }
+  }
+
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const layerRef = useRef<any>(null);
+  // Which stop set the view was last fitted to: re-fit only when it changes,
+  // never on mere redraws (completions, sync ticks) — those must not snatch
+  // the user's zoom/pan away.
+  const lastFitRef = useRef<string>('');
 
   useEffect(() => {
     if (!Number.isFinite(tourId)) {
@@ -252,8 +310,10 @@ export default function MapWebScreen() {
       // data already reflects them.
       await outbox.flush().catch(() => {});
       try {
+        // Read-only: the stored plan, not a fresh solve — reloading the map
+        // must never undo manual edits or reshuffle a week in progress.
         const [result, stops] = await Promise.all([
-          api.optimiseTour(tourId),
+          api.getPlan(tourId),
           api.getStops(tourId),
         ]);
         const tour = composeOptimisedTour(result, stops);
@@ -282,6 +342,13 @@ export default function MapWebScreen() {
 
   const progress = completionProgress(visibleStops);
 
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const weekDayOptions: DayOption[] = (tour?.days ?? []).map((d) => ({
+    value: d.date,
+    label: formatDay(d.date),
+    caption: d.date === todayISO ? 'Today' : undefined,
+  }));
+
   // Draw markers + polyline whenever the tour or the day filter changes.
   useEffect(() => {
     if (!tour || !containerRef.current) return;
@@ -290,7 +357,13 @@ export default function MapWebScreen() {
       .then((L) => {
         if (cancelled || !containerRef.current) return;
         if (!mapRef.current) {
-          mapRef.current = L.map(containerRef.current).setView([51.34, 12.37], 10);
+          // Zoom buttons live bottom-right: Leaflet's default top-left spot
+          // sits underneath the day-chip overlay.
+          mapRef.current = L.map(containerRef.current, { zoomControl: false }).setView(
+            [51.34, 12.37],
+            10,
+          );
+          L.control.zoom({ position: 'bottomright' }).addTo(mapRef.current);
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors',
             maxZoom: 19,
@@ -355,13 +428,29 @@ export default function MapWebScreen() {
                 });
               };
             }
+            const move = root.querySelector(
+              '[data-action="move-stop"]',
+            ) as HTMLButtonElement | null;
+            if (move) {
+              move.onclick = () => {
+                map.closePopup();
+                setMoveTarget(s);
+              };
+            }
           });
         }
 
-        if (stops.length > 0) {
+        const fitKey = `${day}:${stops.map((s) => s.stop_id).join(',')}`;
+        if (stops.length > 0 && fitKey !== lastFitRef.current) {
+          lastFitRef.current = fitKey;
+          // Extra top padding keeps markers out from under the chip overlay.
           map.fitBounds(
             L.latLngBounds(stops.map((s) => [s.lat, s.lng])),
-            { padding: [50, 50], maxZoom: 14 },
+            {
+              paddingTopLeft: [50, 210],
+              paddingBottomRight: [50, 50],
+              maxZoom: 14,
+            },
           );
         }
       })
@@ -395,7 +484,9 @@ export default function MapWebScreen() {
       {/* Leaflet renders into this DOM node (react-native-web View === div). */}
       <View ref={containerRef as any} style={styles.map} />
 
-      <View style={styles.topOverlay}>
+      {/* box-none: only the chips/buttons themselves catch the pointer, so
+          markers and the zoom control underneath stay clickable. */}
+      <View style={styles.topOverlay} pointerEvents="box-none">
         {tour!.unassigned.length > 0 && (
           <Pressable style={styles.banner} onPress={() => setShowUnassigned((v) => !v)}>
             <Text style={styles.bannerText}>
@@ -434,13 +525,18 @@ export default function MapWebScreen() {
             ))}
         </ScrollView>
 
-        <View style={styles.controlRow}>
-          <DateModeControl
-            mode={tour!.date_mode}
-            busy={modeBusy}
-            onChange={changeDateMode}
-          />
-          <View style={styles.pillColumn}>
+        <View style={styles.controlRow} pointerEvents="box-none">
+          <View style={styles.controlColumn} pointerEvents="box-none">
+            <DateModeControl
+              mode={tour!.date_mode}
+              busy={modeBusy}
+              onChange={changeDateMode}
+            />
+            <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
+              <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
+            </Pressable>
+          </View>
+          <View style={styles.pillColumn} pointerEvents="box-none">
             {progress.total > 0 && (
               <View style={styles.progressPill}>
                 <Text style={styles.progressText}>
@@ -459,6 +555,31 @@ export default function MapWebScreen() {
           </View>
         </View>
       </View>
+
+      {/* Plan editing: mid-week re-plan and manual move-to-day */}
+      {replanOpen && (
+        <DayPickerSheet
+          title="Re-plan the rest of the week"
+          message="Pick the first day to re-plan. Stops not yet done — including ones missed on earlier days — are spread over that day and after, starting from the last completed stop. Completed stops keep their history."
+          options={weekDayOptions}
+          busy={planBusy}
+          onSelect={(value) => value && replanFrom(value)}
+          onClose={() => setReplanOpen(false)}
+        />
+      )}
+      {moveTarget && (
+        <DayPickerSheet
+          title={`Move ${moveTarget.customer ?? `stop ${moveTarget.stop_id}`}`}
+          message="The stop is added to the end of the chosen day. Its ETA refreshes on the next re-plan."
+          options={[
+            ...weekDayOptions.filter((o) => o.value !== moveTarget.assigned_day),
+            { value: null, label: 'Take off the plan', destructive: true },
+          ]}
+          busy={planBusy}
+          onSelect={(value) => moveStopTo(moveTarget, value)}
+          onClose={() => setMoveTarget(null)}
+        />
+      )}
 
       {/* Completion sheet: tier 1 status + optional store info + feedback */}
       {sheet && (
@@ -543,6 +664,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
+  controlColumn: { gap: 6, alignItems: 'flex-start' },
+  replanChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  replanChipText: { fontWeight: '600', color: '#333', fontSize: 13 },
   progressPill: {
     backgroundColor: '#fff',
     borderRadius: 18,

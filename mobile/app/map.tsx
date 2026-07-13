@@ -21,6 +21,7 @@ import {
   type CompletionSync,
 } from '../src/components/CompletionSheet';
 import { DateModeControl } from '../src/components/DateModeControl';
+import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
 import {
   bumpStoreFeedbackCount,
@@ -99,6 +100,9 @@ export default function MapScreen() {
     storeId: number;
     title: string;
   } | null>(null);
+  const [replanOpen, setReplanOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<OptimisedStop | null>(null);
+  const [planBusy, setPlanBusy] = useState(false);
   const outboxStatus = useOutboxStatus();
 
   /** Apply a local tour change and persist it to the offline cache. */
@@ -149,18 +153,25 @@ export default function MapScreen() {
     }
   }
 
+  /** Refetch the stored plan (never re-solves) and repaint + recache it. */
+  async function refreshPlan(): Promise<OptimisedTour> {
+    const [result, stops] = await Promise.all([
+      api.getPlan(tourId),
+      api.getStops(tourId),
+    ]);
+    const refreshed = composeOptimisedTour(result, stops);
+    await tourCache.save(refreshed);
+    setLoad({ state: 'ready', tour: refreshed });
+    return refreshed;
+  }
+
   async function changeDateMode(next: DateMode) {
     if (modeBusy) return;
     setModeBusy(true);
     try {
       await api.patchTour(tourId, { date_mode: next });
-      const [result, stops] = await Promise.all([
-        api.optimiseTour(tourId),
-        api.getStops(tourId),
-      ]);
-      const refreshed = composeOptimisedTour(result, stops);
-      await tourCache.save(refreshed);
-      setLoad({ state: 'ready', tour: refreshed });
+      await api.optimiseTour(tourId);
+      await refreshPlan();
       setDay('all'); // day contents shifted; a kept index would mislead
       setSelected(null);
     } catch (err) {
@@ -169,6 +180,46 @@ export default function MapScreen() {
       Alert.alert('Could not change date mode', message);
     } finally {
       setModeBusy(false);
+    }
+  }
+
+  /** Mid-week re-plan: unfinished stops spread over `fromDate` onwards. */
+  async function replanFrom(fromDate: string) {
+    setPlanBusy(true);
+    try {
+      const result = await api.replanTour(tourId, fromDate);
+      await refreshPlan();
+      setReplanOpen(false);
+      setDay('all');
+      setSelected(null);
+      if (result.unassigned.length > 0) {
+        Alert.alert(
+          'Not everything fits',
+          `${result.unassigned.length} stop${result.unassigned.length === 1 ? '' : 's'} don't fit into the remaining days — see the banner for details.`,
+        );
+      }
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      Alert.alert('Could not re-plan', message);
+    } finally {
+      setPlanBusy(false);
+    }
+  }
+
+  /** Manual edit: move a stop to a day (end of it) or off the plan. */
+  async function moveStopTo(stop: OptimisedStop, dayValue: string | null) {
+    setPlanBusy(true);
+    try {
+      await api.moveStopPlan(stop.stop_id, dayValue);
+      await refreshPlan();
+      setMoveTarget(null);
+      setDay('all');
+      setSelected(null);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      Alert.alert('Could not move the stop', message);
+    } finally {
+      setPlanBusy(false);
     }
   }
 
@@ -188,8 +239,10 @@ export default function MapScreen() {
       // data already reflects them.
       await outbox.flush().catch(() => {});
       try {
+        // Read-only: the stored plan, not a fresh solve — reloading the map
+        // must never undo manual edits or reshuffle a week in progress.
         const [result, stops] = await Promise.all([
-          api.optimiseTour(tourId),
+          api.getPlan(tourId),
           api.getStops(tourId),
         ]);
         const tour = composeOptimisedTour(result, stops);
@@ -222,15 +275,21 @@ export default function MapScreen() {
     return tour.days[day]?.stops ?? [];
   }, [tour, day, allStops]);
 
-  // Fit the map to whatever is currently shown.
+  // Fit the map when the shown stop set changes — never on mere redraws
+  // (completions, sync ticks), which must not snatch the user's zoom away.
+  const lastFitRef = useRef<string>('');
   useEffect(() => {
     if (visibleStops.length === 0) return;
+    const fitKey = `${day}:${visibleStops.map((s) => s.stop_id).join(',')}`;
+    if (fitKey === lastFitRef.current) return;
+    lastFitRef.current = fitKey;
     const coords = visibleStops.map((s) => ({ latitude: s.lat, longitude: s.lng }));
     mapRef.current?.fitToCoordinates(coords, {
-      edgePadding: { top: 140, right: 60, bottom: 260, left: 60 },
+      // Top padding keeps markers out from under the chip overlay.
+      edgePadding: { top: 220, right: 60, bottom: 260, left: 60 },
       animated: true,
     });
-  }, [visibleStops]);
+  }, [visibleStops, day]);
 
   if (load.state === 'loading') {
     return (
@@ -260,6 +319,13 @@ export default function MapScreen() {
       : [];
 
   const progress = completionProgress(visibleStops);
+
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const weekDayOptions: DayOption[] = (tour?.days ?? []).map((d) => ({
+    value: d.date,
+    label: formatDay(d.date),
+    caption: d.date === todayISO ? 'Today' : undefined,
+  }));
 
   return (
     <View style={styles.flex}>
@@ -309,8 +375,12 @@ export default function MapScreen() {
         ))}
       </MapView>
 
-      {/* Top overlay: unassigned banner + day filter */}
-      <View style={[styles.topOverlay, { paddingTop: insets.top + 8 }]}>
+      {/* Top overlay: unassigned banner + day filter. box-none: only the
+          chips/buttons catch touches; the map stays pannable underneath. */}
+      <View
+        style={[styles.topOverlay, { paddingTop: insets.top + 8 }]}
+        pointerEvents="box-none"
+      >
         {tour!.unassigned.length > 0 && (
           <Pressable style={styles.banner} onPress={() => setShowUnassigned(true)}>
             <Text style={styles.bannerText}>
@@ -338,13 +408,18 @@ export default function MapScreen() {
           ))}
         </ScrollView>
 
-        <View style={styles.controlRow}>
-          <DateModeControl
-            mode={tour!.date_mode}
-            busy={modeBusy}
-            onChange={changeDateMode}
-          />
-          <View style={styles.pillColumn}>
+        <View style={styles.controlRow} pointerEvents="box-none">
+          <View style={styles.controlColumn} pointerEvents="box-none">
+            <DateModeControl
+              mode={tour!.date_mode}
+              busy={modeBusy}
+              onChange={changeDateMode}
+            />
+            <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
+              <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
+            </Pressable>
+          </View>
+          <View style={styles.pillColumn} pointerEvents="box-none">
             {progress.total > 0 && (
               <View style={styles.progressPill}>
                 <Text style={styles.progressText}>
@@ -373,6 +448,7 @@ export default function MapScreen() {
           bottomInset={insets.bottom}
           onMarkDone={() => markDone(selected)}
           onMarkNotDone={() => markNotDone(selected)}
+          onMove={() => setMoveTarget(selected)}
           onShowHistory={() =>
             selected.store_id !== null &&
             setHistory({
@@ -380,6 +456,31 @@ export default function MapScreen() {
               title: selected.customer ?? `Stop ${selected.stop_id}`,
             })
           }
+        />
+      )}
+
+      {/* Plan editing: mid-week re-plan and manual move-to-day */}
+      {replanOpen && (
+        <DayPickerSheet
+          title="Re-plan the rest of the week"
+          message="Pick the first day to re-plan. Stops not yet done — including ones missed on earlier days — are spread over that day and after, starting from the last completed stop. Completed stops keep their history."
+          options={weekDayOptions}
+          busy={planBusy}
+          onSelect={(value) => value && replanFrom(value)}
+          onClose={() => setReplanOpen(false)}
+        />
+      )}
+      {moveTarget && (
+        <DayPickerSheet
+          title={`Move ${moveTarget.customer ?? `stop ${moveTarget.stop_id}`}`}
+          message="The stop is added to the end of the chosen day. Its ETA refreshes on the next re-plan."
+          options={[
+            ...weekDayOptions.filter((o) => o.value !== moveTarget.assigned_day),
+            { value: null, label: 'Take off the plan', destructive: true },
+          ]}
+          busy={planBusy}
+          onSelect={(value) => moveStopTo(moveTarget, value)}
+          onClose={() => setMoveTarget(null)}
         />
       )}
 
@@ -457,6 +558,7 @@ function StopDetailCard({
   bottomInset,
   onMarkDone,
   onMarkNotDone,
+  onMove,
   onShowHistory,
 }: {
   stop: OptimisedStop;
@@ -465,6 +567,7 @@ function StopDetailCard({
   bottomInset: number;
   onMarkDone: () => void;
   onMarkNotDone: () => void;
+  onMove: () => void;
   onShowHistory: () => void;
 }) {
   const urgent = etaNearClosing(stop.eta, stop.closing_time);
@@ -524,7 +627,7 @@ function StopDetailCard({
       <View style={[styles.etaRow, urgent && styles.etaRowUrgent]}>
         <Text style={styles.etaLabel}>ETA</Text>
         <Text style={[styles.etaValue, urgent && styles.etaValueUrgent]}>
-          {toHHMM(stop.eta)}
+          {stop.eta ? toHHMM(stop.eta) : '—'}
         </Text>
         <Text style={styles.etaLabel}>Closes</Text>
         <Text style={[styles.etaValue, urgent && styles.etaValueUrgent]}>
@@ -553,9 +656,14 @@ function StopDetailCard({
       </Pressable>
 
       {stop.completed_at === null ? (
-        <Pressable style={styles.doneButton} onPress={onMarkDone}>
-          <Text style={styles.buttonText}>Mark done ✓</Text>
-        </Pressable>
+        <>
+          <Pressable style={styles.doneButton} onPress={onMarkDone}>
+            <Text style={styles.buttonText}>Mark done ✓</Text>
+          </Pressable>
+          <Pressable style={styles.undoButton} onPress={onMove}>
+            <Text style={styles.undoButtonText}>Move to another day…</Text>
+          </Pressable>
+        </>
       ) : (
         <Pressable style={styles.undoButton} onPress={onMarkNotDone}>
           <Text style={styles.undoButtonText}>Completed — mark as not done</Text>
@@ -612,6 +720,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
+  controlColumn: { gap: 6, alignItems: 'flex-start' },
+  replanChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    elevation: 2,
+  },
+  replanChipText: { fontWeight: '600', color: '#333', fontSize: 13 },
   progressPill: {
     backgroundColor: '#fff',
     borderRadius: 18,

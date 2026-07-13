@@ -155,9 +155,38 @@ export interface paths {
         put?: never;
         /**
          * Optimise
-         * @description Assign every confirmed market to a working day and order it.
+         * @description Assign every open market to a working day and order it.
+         *
+         *     scope='remaining' re-plans mid-week: days before from_date (default
+         *     today) and every completed stop stay untouched; the still-open stops —
+         *     including any stranded on earlier days — spread over the remaining days,
+         *     starting from the last completed stop.
          */
         post: operations["optimise_tours__tour_id__optimise_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tours/{tour_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Plan
+         * @description The stored schedule, without re-solving — what the map should load.
+         *
+         *     Re-optimising on read would overwrite manual edits and mid-week state,
+         *     so this endpoint only mirrors the database. Drive time and day-end are
+         *     solver outputs and read as zero/empty here.
+         */
+        get: operations["get_plan_tours__tour_id__plan_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -179,6 +208,30 @@ export interface paths {
         head?: never;
         /** Update Stop */
         patch: operations["update_stop_stops__stop_id__patch"];
+        trace?: never;
+    };
+    "/stops/{stop_id}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Stop Plan
+         * @description Manually move a stop to another day (or off the plan entirely).
+         *
+         *     The edit is authoritative: it survives map reloads because clients read
+         *     GET /tours/{id}/plan, which never re-solves. Both affected days are
+         *     re-sequenced; the moved stop's ETA clears until the next optimise run.
+         */
+        patch: operations["update_stop_plan_stops__stop_id__plan_patch"];
         trace?: never;
     };
     "/stops/{stop_id}/complete": {
@@ -222,6 +275,30 @@ export interface paths {
         get: operations["list_stores_stores_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stores/service-times/recompute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recompute Store Service Times
+         * @description Re-learn every store's service duration from completion history (P4).
+         *
+         *     Recomputes from scratch on each call — history is small — and needs OSRM
+         *     for the drive legs between completed stops. Triggered from the office's
+         *     stores page; new tours pick the learned values up at extraction time.
+         */
+        post: operations["recompute_store_service_times_stores_service_times_recompute_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -411,11 +488,8 @@ export interface components {
             stop_id: number;
             /** Sequence */
             sequence: number;
-            /**
-             * Eta
-             * Format: time
-             */
-            eta: string;
+            /** Eta */
+            eta: string | null;
         };
         /** DaySummary */
         DaySummary: {
@@ -546,6 +620,25 @@ export interface components {
          * @enum {string}
          */
         HoursSource: "osm" | "manual" | "default";
+        /**
+         * OptimiseRequest
+         * @description Optional POST /tours/{id}/optimise body.
+         *
+         *     scope='remaining' is the mid-week re-plan: completed stops stay where
+         *     they are, everything still open (including stops stranded on earlier
+         *     days) is redistributed over the days from from_date on. from_date
+         *     defaults to today.
+         */
+        OptimiseRequest: {
+            /**
+             * Scope
+             * @default week
+             * @enum {string}
+             */
+            scope: "week" | "remaining";
+            /** From Date */
+            from_date?: string | null;
+        };
         /** OptimiseResult */
         OptimiseResult: {
             /** Tour Id */
@@ -600,6 +693,12 @@ export interface components {
             status: string;
             /** Completed At */
             completed_at: string | null;
+            /** Assigned Day */
+            assigned_day?: string | null;
+            /** Sequence */
+            sequence?: number | null;
+            /** Unassigned Reason */
+            unassigned_reason?: string | null;
             /** Street */
             street: string | null;
             /** Postal Code */
@@ -621,6 +720,18 @@ export interface components {
             /** Store Feedback Count */
             store_feedback_count: number;
         };
+        /**
+         * StopPlanUpdate
+         * @description Manual plan edit (PATCH /stops/{id}/plan): move the stop to a day —
+         *     appended, or at the 1-based position — or take it off the plan entirely
+         *     (assigned_day=null).
+         */
+        StopPlanUpdate: {
+            /** Assigned Day */
+            assigned_day: string | null;
+            /** Position */
+            position?: number | null;
+        };
         /** StopRead */
         StopRead: {
             /** Id */
@@ -640,6 +751,12 @@ export interface components {
             status: string;
             /** Completed At */
             completed_at: string | null;
+            /** Assigned Day */
+            assigned_day?: string | null;
+            /** Sequence */
+            sequence?: number | null;
+            /** Unassigned Reason */
+            unassigned_reason?: string | null;
         };
         /**
          * StopUpdate
@@ -687,6 +804,12 @@ export interface components {
             default_tasks: string[] | null;
             /** Default Service Minutes */
             default_service_minutes: number | null;
+            /** Learned Service Minutes */
+            learned_service_minutes: number | null;
+            /** Service Time Samples */
+            service_time_samples: number;
+            /** Service Times Updated At */
+            service_times_updated_at: string | null;
             size: components["schemas"]["StoreSize"] | null;
             /** In Mall */
             in_mall: boolean | null;
@@ -698,6 +821,20 @@ export interface components {
             attributes_updated_by: string | null;
             /** Attributes Complete */
             attributes_complete: boolean;
+        };
+        /**
+         * StoreServiceTimeRead
+         * @description Per-store outcome of a service-time recompute run.
+         */
+        StoreServiceTimeRead: {
+            /** Store Id */
+            store_id: number;
+            /** Name */
+            name: string;
+            /** Samples */
+            samples: number;
+            /** Learned Service Minutes */
+            learned_service_minutes: number | null;
         };
         /**
          * StoreSize
@@ -1030,6 +1167,41 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OptimiseRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimiseResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_plan_tours__tour_id__plan_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
             /** @description Successful Response */
@@ -1064,6 +1236,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["StopUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_stop_plan_stops__stop_id__plan_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StopPlanUpdate"];
             };
         };
         responses: {
@@ -1180,6 +1387,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    recompute_store_service_times_stores_service_times_recompute_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoreServiceTimeRead"][];
                 };
             };
         };
