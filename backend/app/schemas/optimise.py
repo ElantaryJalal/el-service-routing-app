@@ -1,14 +1,29 @@
 from datetime import date, time
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.models.tour import DateMode
 
 
+class OptimiseRequest(BaseModel):
+    """Optional POST /tours/{id}/optimise body.
+
+    scope='remaining' is the mid-week re-plan: completed stops stay where
+    they are, everything still open (including stops stranded on earlier
+    days) is redistributed over the days from from_date on. from_date
+    defaults to today.
+    """
+
+    scope: Literal["week", "remaining"] = "week"
+    from_date: date | None = None
+
+
 class DayStop(BaseModel):
     stop_id: int
     sequence: int
-    eta: time
+    # Null after a manual move — only the solver can estimate an arrival.
+    eta: time | None
 
 
 class DaySummary(BaseModel):

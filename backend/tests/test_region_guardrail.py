@@ -79,6 +79,30 @@ def test_plan_region_days_far_regions_get_disjoint_blocks():
     assert leipzig_days.isdisjoint(aachen_days)
 
 
+def test_plan_region_days_depot_orders_blocks_by_distance():
+    # Big Leipzig region, one stop near Aachen, base just west of Aachen: the
+    # small region is on the way out and must get day 1, not the leftover
+    # Friday its workload rank would give it.
+    stops = {i: ((LEIPZIG[0] + i * 0.01, LEIPZIG[1]), HOUR) for i in range(4)}
+    stops[10] = (AACHEN, HOUR)
+    depot = (AACHEN[0] - 0.05, AACHEN[1])
+
+    allowed = plan_region_days(stops, WEEK, max_span_km=120, depot=depot)
+
+    assert allowed[10] == [WEEK[0]]
+    assert all(allowed[i] == WEEK[1:] for i in range(4))
+
+
+def test_plan_region_days_without_depot_keeps_workload_order():
+    stops = {i: ((LEIPZIG[0] + i * 0.01, LEIPZIG[1]), HOUR) for i in range(4)}
+    stops[10] = (AACHEN, HOUR)
+
+    allowed = plan_region_days(stops, WEEK, max_span_km=120)
+
+    assert allowed[10] == [WEEK[4]]
+    assert all(allowed[i] == WEEK[:4] for i in range(4))
+
+
 def test_plan_region_days_loser_region_gets_no_day():
     # One day, two regions: the smaller-workload region maps to [].
     stops = {

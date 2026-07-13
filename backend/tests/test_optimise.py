@@ -237,6 +237,28 @@ def test_optimized_mode_moves_stops_off_their_plan_date(db):
     assert any(d != MONDAY for d in used_days)
 
 
+def test_optimized_mode_spreads_over_all_days(db):
+    session, factory = db
+    # 20 undated markets in one region, 5-day week: solver-chosen days must
+    # use the whole week (4 per day), not cram the fewest days and leave
+    # Friday empty.
+    specs = [
+        {
+            "service_minutes": 60,
+            "closing_time": None,
+            "lon": LEIPZIG[0] + i * 0.005,
+            "lat": LEIPZIG[1],
+        }
+        for i in range(20)
+    ]
+    tour_id, _ = factory(MONDAY, FRIDAY, specs, date_mode=DateMode.optimized)
+
+    result = _optimise(session, tour_id)
+
+    assert result.unassigned == []
+    assert [len(d.stops) for d in result.days] == [4, 4, 4, 4, 4]
+
+
 def test_optimized_mode_never_mixes_far_regions(db):
     session, factory = db
     # Six markets around Leipzig, six around Aachen, zero travel cost in the

@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,6 +11,15 @@ class StopUpdate(BaseModel):
     opening_time: time | None = None
     closing_time: time | None = None
     service_minutes: int | None = Field(default=None, ge=30, le=600)
+
+
+class StopPlanUpdate(BaseModel):
+    """Manual plan edit (PATCH /stops/{id}/plan): move the stop to a day —
+    appended, or at the 1-based position — or take it off the plan entirely
+    (assigned_day=null)."""
+
+    assigned_day: date | None
+    position: int | None = Field(default=None, ge=1)
 
 
 class StopCompleteRequest(BaseModel):
@@ -32,6 +41,10 @@ class StopRead(BaseModel):
     hours_source: HoursSource
     status: str
     completed_at: datetime | None
+    # Plan placement — set by the optimiser or a manual move (PATCH .../plan).
+    assigned_day: date | None = None
+    sequence: int | None = None
+    unassigned_reason: str | None = None
 
 
 class StopDetail(StopRead):

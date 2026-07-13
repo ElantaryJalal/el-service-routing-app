@@ -13,7 +13,7 @@ from app.models.task import Task
 from app.models.tour import Tour
 from app.models.visit_feedback import VisitFeedback
 from app.schemas.draft import DraftStop, DraftStopUpdate, TourDraft
-from app.schemas.optimise import OptimiseResult
+from app.schemas.optimise import OptimiseRequest, OptimiseResult
 from app.schemas.stop import CommitResult, StopDetail
 from app.schemas.tour import TourRead, TourUpdate
 from app.services.extraction import extract_tour, normalize_media_type
@@ -21,7 +21,7 @@ from app.services.extraction_local import extract_tour_local
 from app.services.extraction_ollama import extract_tour_ollama
 from app.services.geocoding import geocode_address
 from app.services.opening_hours import fetch_opening_hours
-from app.services.optimiser import optimise_tour
+from app.services.optimiser import current_plan, optimise_tour
 from app.services.store_catalog import enrich_stop_from_store, match_store
 
 router = APIRouter(prefix="/tours", tags=["tours"])
@@ -316,6 +316,9 @@ def list_stops(
                 hours_source=stop.hours_source,
                 status=stop.status,
                 completed_at=stop.completed_at,
+                assigned_day=stop.assigned_day,
+                sequence=stop.sequence,
+                unassigned_reason=stop.unassigned_reason,
                 street=stop.street,
                 postal_code=stop.postal_code,
                 city=stop.city,
@@ -394,9 +397,37 @@ def commit_tour(
 def optimise(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
+    payload: OptimiseRequest | None = None,
 ) -> OptimiseResult:
-    """Assign every confirmed market to a working day and order it."""
+    """Assign every open market to a working day and order it.
+
+    scope='remaining' re-plans mid-week: days before from_date (default
+    today) and every completed stop stay untouched; the still-open stops —
+    including any stranded on earlier days — spread over the remaining days,
+    starting from the last completed stop.
+    """
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
-    return optimise_tour(db, tour)
+
+    from_date = None
+    if payload is not None and payload.scope == "remaining":
+        from_date = payload.from_date or date.today()
+    return optimise_tour(db, tour, from_date=from_date)
+
+
+@router.get("/{tour_id}/plan", response_model=OptimiseResult)
+def get_plan(
+    tour_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> OptimiseResult:
+    """The stored schedule, without re-solving — what the map should load.
+
+    Re-optimising on read would overwrite manual edits and mid-week state,
+    so this endpoint only mirrors the database. Drive time and day-end are
+    solver outputs and read as zero/empty here.
+    """
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    return current_plan(db, tour)

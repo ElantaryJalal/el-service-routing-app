@@ -19,9 +19,11 @@ Key modelling choices:
 - Guardrail for 'optimized': stops are clustered by proximity, clusters whose
   centroids lie within max_day_span_km of each other are grouped, and each
   group receives its own share of the week's days (windows only on those
-  days). A single day therefore never mixes far-apart regions, which zero-ish
-  looking travel in the matrix would otherwise invite. Regions that can't get
-  a day are returned as unassigned.
+  days), blocks ordered by distance from the company base — the week reads as
+  one journey out from HQ, so a region on the way out is served on day 1. A
+  single day therefore never mixes far-apart regions, which zero-ish looking
+  travel in the matrix would otherwise invite. Regions that can't get a day
+  are returned as unassigned.
 - Vroom time windows constrain when *service starts*. To force "done before the
   store closes", each day's window end is `close - service`, not `close`.
 - The OSRM matrix is fetched explicitly and passed to Vroom (matrix mode); the
@@ -40,6 +42,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.stop import Stop
+from app.models.store import Store
 from app.models.tour import DateMode, Tour
 from app.routing.osrm import OSRMClient
 from app.routing.vroom import VroomClient
@@ -54,6 +57,8 @@ REASON_NO_WINDOW = "no feasible time window"
 REASON_NO_DAYS = "exceeds available days"
 REASON_MISSING_LOCATION = "missing location"
 REASON_FAR_REGION = "too far from the rest of the tour to fit into the week"
+REASON_NOT_SCHEDULED = "not scheduled yet"
+REASON_REMOVED_MANUALLY = "taken off the plan by hand"
 
 
 @dataclass
@@ -129,19 +134,28 @@ def optimise_tour(
     config: OptimiseConfig | None = None,
     matrix_provider: MatrixProvider | None = None,
     vroom_client: VroomClient | None = None,
+    from_date: date | None = None,
 ) -> OptimiseResult:
+    """Plan the tour's days. With ``from_date``, re-plan mid-week: only the
+    days from that date on are (re)used, completed stops keep their history,
+    and everything still open — including stops stranded on earlier days —
+    is redistributed over the remaining days."""
     config = config or OptimiseConfig.from_settings()
     matrix_provider = matrix_provider or _osrm_matrix
     vroom_client = vroom_client or VroomClient()
 
-    days = working_days(tour, config)
+    week_days = working_days(tour, config)
+    days = [d for d in week_days if from_date is None or d >= from_date]
 
+    # Completed stops are history — never re-planned, in any mode; they keep
+    # their day/sequence for the record (and the P4 service-time learner).
     stops = list(
         db.scalars(
             select(Stop).where(
                 Stop.tour_id == tour.id,
                 Stop.status == "confirmed",
                 Stop.status_hint != "skip",
+                Stop.completed_at.is_(None),
             )
         )
     )
@@ -151,48 +165,76 @@ def optimise_tour(
         stop.assigned_day = None
         stop.sequence = None
         stop.eta = None
+        stop.unassigned_reason = None
 
     coords_by_id = _coords_by_id(db, [s.id for s in stops])
 
+    # A stop's own estimate is authoritative (it may be crew-edited); a stop
+    # without one falls back to its catalog store's learned-then-default
+    # minutes (P4), then to the global default.
+    store_minutes = _store_service_minutes(db, stops)
+
+    def service_minutes_for(stop: Stop) -> int:
+        return (
+            stop.service_minutes
+            or store_minutes.get(stop.store_id)
+            or config.default_service_minutes
+        )
+
+    # Where the first planned day starts. A fresh week departs from the
+    # company base; a mid-week re-plan departs from wherever the crew last
+    # was — the most recently completed stop. With neither (a re-plan before
+    # anything was done), the first day free-starts like the hotel days. A
+    # failed base geocode degrades to a free start rather than blocking.
+    depot_coord = _last_completed_coord(db, tour.id)
+    if depot_coord is None and days and week_days and days[0] == week_days[0]:
+        depot_coord = geocode_address(
+            db,
+            settings.default_start_street,
+            settings.default_start_postal_code,
+            settings.default_start_city,
+        )
+
     # 'fixed' pins dated stops to their plan day; 'optimized' lets the solver
     # choose days, constrained to region day-groups so one day never mixes
-    # far-apart areas.
+    # far-apart areas. The base coordinate orders the groups: only day 1
+    # starts at the base, so the region nearest it must get the week's first
+    # days, not whatever block is left over.
     pin_dates = config.respect_stop_dates and tour.date_mode == DateMode.fixed
     days_by_stop: dict[int, list[date]] = {}
     if not pin_dates and days:
         days_by_stop = plan_region_days(
             {
-                s.id: (
-                    coords_by_id[s.id],
-                    (s.service_minutes or config.default_service_minutes) * 60,
-                )
+                s.id: (coords_by_id[s.id], service_minutes_for(s) * 60)
                 for s in stops
                 if s.id in coords_by_id
             },
             days,
             config.max_day_span_km,
+            depot=depot_coord,
         )
 
     schedulable: list[_Job] = []
     unassigned: list[UnassignedStop] = []
 
+    def mark_unassigned(stop: Stop, reason: str) -> None:
+        stop.unassigned_reason = reason
+        unassigned.append(UnassignedStop(stop_id=stop.id, reason=reason))
+
     for stop in stops:
         if stop.id not in coords_by_id:
-            unassigned.append(
-                UnassignedStop(stop_id=stop.id, reason=REASON_MISSING_LOCATION)
-            )
+            mark_unassigned(stop, REASON_MISSING_LOCATION)
             continue
 
         stop_days = days_by_stop.get(stop.id, days) if not pin_dates else days
-        if not pin_dates and not stop_days:
-            unassigned.append(UnassignedStop(stop_id=stop.id, reason=REASON_FAR_REGION))
+        if not stop_days:
+            mark_unassigned(stop, REASON_NO_DAYS if not days else REASON_FAR_REGION)
             continue
 
-        service = (stop.service_minutes or config.default_service_minutes) * 60
+        service = service_minutes_for(stop) * 60
         windows = _job_windows(stop, stop_days, service, config, pin_dates)
         if not windows:
-            reason = REASON_NO_DAYS if not days else REASON_NO_WINDOW
-            unassigned.append(UnassignedStop(stop_id=stop.id, reason=reason))
+            mark_unassigned(stop, REASON_NO_DAYS if not days else REASON_NO_WINDOW)
             continue
 
         schedulable.append(
@@ -223,17 +265,29 @@ def optimise_tour(
             unassigned=unassigned,
         )
 
-    # The week departs from the company base; a failed geocode degrades to the
-    # old open-ended start rather than blocking optimisation.
-    depot_coord = geocode_address(
-        db,
-        settings.default_start_street,
-        settings.default_start_postal_code,
-        settings.default_start_city,
-    )
+    # Solver-chosen days spread the work over every day rather than cramming
+    # the fewest: within each region's block of days, a day takes at most the
+    # even share, so Friday becomes a lighter day instead of an empty one.
+    # Pinned (fixed-mode) plans keep whatever the paper says — a cap could
+    # unassign dated stops.
+    max_tasks_by_day: dict[date, int] | None = None
+    if not pin_dates and days_by_stop:
+        block_sizes: dict[tuple[date, ...], int] = {}
+        for job in schedulable:
+            block = tuple(days_by_stop.get(job.stop.id, days))
+            block_sizes[block] = block_sizes.get(block, 0) + 1
+        max_tasks_by_day = {}
+        for block, size in block_sizes.items():
+            for day in block:
+                max_tasks_by_day[day] = -(-size // len(block))
 
     problem = _build_problem(
-        schedulable, days, config, matrix_provider, depot_coord=depot_coord
+        schedulable,
+        days,
+        config,
+        matrix_provider,
+        depot_coord=depot_coord,
+        max_tasks_by_day=max_tasks_by_day,
     )
     solution = vroom_client.solve(problem)
 
@@ -241,9 +295,7 @@ def optimise_tour(
     summaries = _apply_solution(solution, days, stop_by_id, config)
 
     for entry in solution.get("unassigned", []):
-        unassigned.append(
-            UnassignedStop(stop_id=int(entry["id"]), reason=REASON_NO_DAYS)
-        )
+        mark_unassigned(stop_by_id[int(entry["id"])], REASON_NO_DAYS)
 
     db.commit()
     return OptimiseResult(
@@ -262,6 +314,35 @@ class _Job:
     windows: list[list[int]]
 
 
+def _store_service_minutes(db: Session, stops: Sequence[Stop]) -> dict[int, int]:
+    """Catalog fallback minutes per store id: learned (P4) over hand-set default."""
+    store_ids = {s.store_id for s in stops if s.store_id is not None}
+    if not store_ids:
+        return {}
+    rows = db.execute(
+        select(
+            Store.id,
+            func.coalesce(Store.learned_service_minutes, Store.default_service_minutes),
+        ).where(Store.id.in_(store_ids))
+    ).all()
+    return {store_id: minutes for store_id, minutes in rows if minutes is not None}
+
+
+def _last_completed_coord(db: Session, tour_id: int) -> Coordinate | None:
+    """Where the crew last finished a stop — the mid-week re-plan start."""
+    row = db.execute(
+        select(func.ST_X(Stop.geom), func.ST_Y(Stop.geom))
+        .where(
+            Stop.tour_id == tour_id,
+            Stop.completed_at.isnot(None),
+            Stop.geom.isnot(None),
+        )
+        .order_by(Stop.completed_at.desc())
+        .limit(1)
+    ).first()
+    return (row[0], row[1]) if row else None
+
+
 def _coords_by_id(db: Session, stop_ids: list[int]) -> dict[int, Coordinate]:
     if not stop_ids:
         return {}
@@ -271,6 +352,124 @@ def _coords_by_id(db: Session, stop_ids: list[int]) -> dict[int, Coordinate]:
         )
     ).all()
     return {sid: (lon, lat) for sid, lon, lat in rows}
+
+
+# --- Stored plan: read + manual edits (no solver) -----------------------------
+
+
+def _tour_plan_stops(db: Session, tour_id: int) -> list[Stop]:
+    return list(
+        db.scalars(
+            select(Stop).where(
+                Stop.tour_id == tour_id,
+                Stop.status == "confirmed",
+                Stop.status_hint != "skip",
+            )
+        )
+    )
+
+
+def current_plan(
+    db: Session, tour: Tour, config: OptimiseConfig | None = None
+) -> OptimiseResult:
+    """The schedule exactly as stored — what clients should read.
+
+    Re-solving on read would silently overwrite completions-in-progress and
+    manual edits, so the map loads this instead of POSTing optimise. Days are
+    the tour's working days plus any day a stop was hand-moved to. Drive time
+    and day-end are solver outputs and read as zero/empty here.
+    """
+    config = config or OptimiseConfig.from_settings()
+    stops = _tour_plan_stops(db, tour.id)
+
+    dates = sorted(
+        set(working_days(tour, config))
+        | {s.assigned_day for s in stops if s.assigned_day is not None}
+    )
+
+    summaries = []
+    for day in dates:
+        day_stops = sorted(
+            (s for s in stops if s.assigned_day == day),
+            key=lambda s: (s.sequence is None, s.sequence, s.id),
+        )
+        summaries.append(
+            DaySummary(
+                date=day,
+                stops=[
+                    DayStop(
+                        stop_id=s.id,
+                        sequence=s.sequence if s.sequence is not None else index + 1,
+                        eta=s.eta.time() if s.eta is not None else None,
+                    )
+                    for index, s in enumerate(day_stops)
+                ],
+                drive_seconds=0,
+                service_seconds=sum(
+                    (s.service_minutes or config.default_service_minutes) * 60
+                    for s in day_stops
+                ),
+                day_end=None,
+                near_limit=False,
+            )
+        )
+
+    unassigned = [
+        UnassignedStop(
+            stop_id=s.id,
+            reason=s.unassigned_reason
+            or (REASON_MISSING_LOCATION if s.geom is None else REASON_NOT_SCHEDULED),
+        )
+        for s in stops
+        if s.assigned_day is None and s.completed_at is None
+    ]
+    return OptimiseResult(
+        tour_id=tour.id, date_mode=tour.date_mode, days=summaries, unassigned=unassigned
+    )
+
+
+def move_stop(
+    db: Session, stop: Stop, day: date | None, position: int | None = None
+) -> None:
+    """Manually move a stop to a day (1-based position, appended by default)
+    or take it off the plan (day=None). Both affected days are re-sequenced;
+    the moved stop's ETA is cleared — only the solver can estimate one.
+    """
+
+    def stops_of(day: date) -> list[Stop]:
+        return list(
+            db.scalars(
+                select(Stop)
+                .where(
+                    Stop.tour_id == stop.tour_id,
+                    Stop.assigned_day == day,
+                    Stop.id != stop.id,
+                )
+                .order_by(Stop.sequence)
+            )
+        )
+
+    source_day = stop.assigned_day
+    stop.eta = None
+
+    if day is None:
+        stop.assigned_day = None
+        stop.sequence = None
+        stop.unassigned_reason = REASON_REMOVED_MANUALLY
+    else:
+        target = stops_of(day)
+        index = len(target) if position is None else min(position - 1, len(target))
+        target.insert(index, stop)
+        stop.assigned_day = day
+        stop.unassigned_reason = None
+        for sequence, member in enumerate(target, start=1):
+            member.sequence = sequence
+
+    if source_day is not None and source_day != day:
+        for sequence, member in enumerate(stops_of(source_day), start=1):
+            member.sequence = sequence
+
+    db.commit()
 
 
 # --- Region guardrail (date_mode='optimized') --------------------------------
@@ -353,6 +552,7 @@ def plan_region_days(
     stops: dict[int, tuple[Coordinate, int]],
     days: list[date],
     max_span_km: float,
+    depot: Coordinate | None = None,
 ) -> dict[int, list[date]]:
     """Split the week's days between geographic regions.
 
@@ -360,9 +560,13 @@ def plan_region_days(
     clustered by proximity (single-linkage, eps = max_span_km / 4); clusters
     whose centroids all lie within max_span_km of each other merge into a
     day-group; each group gets a contiguous block of days sized by its share
-    of the service workload. The returned mapping gives every stop its allowed
-    days — an empty list means the stop's region lost the allocation (more
-    far-apart regions than days) and must be reported unassigned.
+    of the service workload. With ``depot`` given, blocks run in order of a
+    group's distance from it: the week is one journey out from the base, so a
+    region on the way out is served on day 1 (the only day that starts at the
+    base) rather than on a leftover day at the week's end. The returned
+    mapping gives every stop its allowed days — an empty list means the
+    stop's region lost the allocation (more far-apart regions than days) and
+    must be reported unassigned.
     """
     if not stops:
         return {}
@@ -402,12 +606,20 @@ def plan_region_days(
 
     day_counts = _allocate_days([g["workload"] for g in groups], len(days))
 
+    # Sizing above is by workload; block *order* follows the drive out from
+    # the base. Without a depot the workload order stands.
+    order = list(range(len(groups)))
+    if depot is not None:
+        order.sort(
+            key=lambda g: min(_haversine_km(depot, c) for c in groups[g]["centroids"])
+        )
+
     allowed: dict[int, list[date]] = {}
     cursor = 0
-    for group, count in zip(groups, day_counts, strict=True):
-        block = days[cursor : cursor + count]
-        cursor += count
-        for i in group["indices"]:
+    for g in order:
+        block = days[cursor : cursor + day_counts[g]]
+        cursor += day_counts[g]
+        for i in groups[g]["indices"]:
             allowed[ids[i]] = block
     return allowed
 
@@ -445,6 +657,7 @@ def _build_problem(
     matrix_provider: MatrixProvider,
     *,
     depot_coord: Coordinate | None = None,
+    max_tasks_by_day: dict[date, int] | None = None,
 ) -> dict:
     # The real depot (company base) travels at actual cost, so it joins the
     # OSRM matrix; the first day starts there.
@@ -470,6 +683,16 @@ def _build_problem(
             # the crew's hotel is, modelled as a free start.
             "start_index": (
                 base_index if index == 0 and base_index is not None else free_index
+            ),
+            # Later days carry a growing fixed cost (30 min-equivalents), so
+            # work fills the earliest days first and holes never open
+            # mid-week; the max_tasks cap (solver-chosen days only) forces
+            # the spill-over that keeps every day of the week in use.
+            "costs": {"fixed": index * 1800},
+            **(
+                {"max_tasks": max_tasks_by_day[day]}
+                if max_tasks_by_day is not None and day in max_tasks_by_day
+                else {}
             ),
             "time_window": [
                 _epoch(day, config.working_start),

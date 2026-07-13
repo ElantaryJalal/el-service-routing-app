@@ -6,7 +6,13 @@ from sqlalchemy.sql import func
 
 from app.db import get_db
 from app.models.stop import HoursSource, Stop
-from app.schemas.stop import StopCompleteRequest, StopRead, StopUpdate
+from app.schemas.stop import (
+    StopCompleteRequest,
+    StopPlanUpdate,
+    StopRead,
+    StopUpdate,
+)
+from app.services.optimiser import move_stop
 
 router = APIRouter(prefix="/stops", tags=["stops"])
 
@@ -31,6 +37,35 @@ def update_stop(
         stop.hours_source = HoursSource.manual
 
     db.commit()
+    db.refresh(stop)
+    return stop
+
+
+@router.patch("/{stop_id}/plan", response_model=StopRead)
+def update_stop_plan(
+    stop_id: int,
+    payload: StopPlanUpdate,
+    db: Annotated[Session, Depends(get_db)],
+) -> Stop:
+    """Manually move a stop to another day (or off the plan entirely).
+
+    The edit is authoritative: it survives map reloads because clients read
+    GET /tours/{id}/plan, which never re-solves. Both affected days are
+    re-sequenced; the moved stop's ETA clears until the next optimise run.
+    """
+    stop = db.get(Stop, stop_id)
+    if stop is None:
+        raise HTTPException(status_code=404, detail="stop not found")
+
+    if payload.assigned_day is not None:
+        tour = stop.tour
+        if not (tour.date_from <= payload.assigned_day <= tour.date_to):
+            raise HTTPException(
+                status_code=422,
+                detail="assigned_day is outside the tour's date range",
+            )
+
+    move_stop(db, stop, payload.assigned_day, payload.position)
     db.refresh(stop)
     return stop
 

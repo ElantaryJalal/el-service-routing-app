@@ -68,6 +68,10 @@ class Stop(Base):
     assigned_day: Mapped[date | None] = mapped_column(Date)
     sequence: Mapped[int | None] = mapped_column(Integer)
     eta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Why the stop is off the plan (optimiser verdict or manual removal), so
+    # GET /tours/{id}/plan can rebuild the schedule without re-solving. Null
+    # whenever assigned_day is set.
+    unassigned_reason: Mapped[str | None] = mapped_column(String(120))
     geom: Mapped[WKBElement | None] = mapped_column(
         Geometry(geometry_type="POINT", srid=4326, spatial_index=False)
     )
