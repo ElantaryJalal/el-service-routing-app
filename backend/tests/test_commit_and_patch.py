@@ -82,7 +82,7 @@ def test_commit_enriches_and_manual_patch_wins(seeded, monkeypatch):
     resp = client.post(f"/tours/{tour_id}/commit")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["status"] == "confirmed"
+    assert body["status"] == "planned"
     assert body["stops_total"] == 2
     assert body["stops_enriched"] == 1
 

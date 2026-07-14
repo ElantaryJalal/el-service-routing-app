@@ -1,21 +1,23 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.deps import CurrentUser, ensure_tour_visible, require_role
 from app.config import settings
 from app.db import get_db
 from app.models.stop import HoursSource, Stop
 from app.models.task import Task
-from app.models.tour import Tour
+from app.models.tour import Tour, TourStatus
+from app.models.user import Role, User
 from app.models.visit_feedback import VisitFeedback
-from app.schemas.draft import DraftStop, DraftStopUpdate, TourDraft
+from app.schemas.draft import DraftStop, DraftStopCreate, DraftStopUpdate, TourDraft
 from app.schemas.optimise import OptimiseRequest, OptimiseResult
 from app.schemas.stop import CommitResult, StopDetail
-from app.schemas.tour import TourRead, TourUpdate
+from app.schemas.tour import TourAssignRequest, TourCreate, TourRead, TourUpdate
 from app.services.extraction import extract_tour, normalize_media_type
 from app.services.extraction_local import extract_tour_local
 from app.services.extraction_ollama import extract_tour_ollama
@@ -25,6 +27,11 @@ from app.services.optimiser import current_plan, optimise_tour
 from app.services.store_catalog import enrich_stop_from_store, match_store
 
 router = APIRouter(prefix="/tours", tags=["tours"])
+
+# Planning surface (extract/commit/optimise/assign/plan edits).
+_PLANNERS = Depends(require_role(Role.dispatcher, Role.admin))
+# Office reads (drafts, analytics); workers get tour reads via ensure_tour_visible.
+_READERS = Depends(require_role(Role.manager, Role.dispatcher, Role.admin))
 
 # Stops accept a manual service-time in this range (mirrors StopUpdate/mobile).
 _SERVICE_MIN, _SERVICE_MAX = 30, 600
@@ -55,6 +62,7 @@ def _draft_stop(stop: Stop) -> DraftStop:
     }
     return DraftStop(
         id=stop.id,
+        customer=stop.customer,
         street=stop.street,
         postal_code=stop.postal_code,
         city=stop.city,
@@ -76,10 +84,48 @@ def _build_draft(db: Session, tour_id: int) -> TourDraft:
     return TourDraft(tour_id=tour_id, stops=[_draft_stop(s) for s in stops])
 
 
-@router.post("/extract", response_model=TourDraft)
+@router.get("", response_model=list[TourRead], dependencies=[_READERS])
+def list_tours(
+    db: Annotated[Session, Depends(get_db)],
+    status: TourStatus | None = None,
+    assigned_user_id: int | None = None,
+) -> list[Tour]:
+    """All tours, newest week first, optionally filtered (the office list)."""
+    query = select(Tour).order_by(Tour.date_from.desc(), Tour.id.desc())
+    if status is not None:
+        query = query.where(Tour.status == status)
+    if assigned_user_id is not None:
+        query = query.where(Tour.assigned_user_id == assigned_user_id)
+    return list(db.scalars(query))
+
+
+@router.post("", response_model=TourRead, status_code=201, dependencies=[_PLANNERS])
+def create_tour(
+    payload: TourCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> Tour:
+    """Create an empty draft tour (the dispatcher's New-tour flow); stops are
+    then added via photo extraction or POST /tours/{id}/stops."""
+    if payload.date_to < payload.date_from:
+        raise HTTPException(status_code=422, detail="date_to is before date_from")
+    tour = Tour(
+        customer=payload.customer.strip() or "Unknown",
+        calendar_week=payload.calendar_week,
+        date_from=payload.date_from,
+        date_to=payload.date_to,
+        status=TourStatus.draft,
+    )
+    db.add(tour)
+    db.commit()
+    db.refresh(tour)
+    return tour
+
+
+@router.post("/extract", response_model=TourDraft, dependencies=[_PLANNERS])
 def extract(
     db: Annotated[Session, Depends(get_db)],
     image: Annotated[UploadFile, File()],
+    tour_id: Annotated[int | None, Form()] = None,
 ) -> TourDraft:
     """Extract a draft tour from a photographed plan (vision) and geocode it.
 
@@ -88,7 +134,21 @@ def extract(
     best-effort (cached Nominatim), and returns the draft for the Confirm
     screen. Runs in a threadpool (sync def), so the multi-second model call
     doesn't block the event loop.
+
+    With ``tour_id`` the rows are appended to that existing draft tour instead
+    (the office New-tour flow creates the tour first, then uploads the photo);
+    the photo's header fields only fill blanks on the existing tour.
     """
+    existing_tour: Tour | None = None
+    if tour_id is not None:
+        existing_tour = db.get(Tour, tour_id)
+        if existing_tour is None:
+            raise HTTPException(status_code=404, detail="tour not found")
+        if existing_tour.status != TourStatus.draft:
+            raise HTTPException(
+                status_code=409, detail="stops can only be extracted into a draft tour"
+            )
+
     data = image.file.read()
     if not data:
         raise HTTPException(status_code=400, detail="empty image")
@@ -106,24 +166,35 @@ def extract(
             status_code=502, detail=f"extraction failed: {exc}"
         ) from exc
 
-    tour = Tour(
-        customer=(parsed.customer or "Unknown").strip() or "Unknown",
-        calendar_week=parsed.calendar_week or 0,
-        date_from=_parse_iso_date(parsed.date_from) or date.today(),
-        date_to=_parse_iso_date(parsed.date_to) or date.today(),
-        team_lead=parsed.team_lead,
-        employee=parsed.employee,
-        vehicle=parsed.vehicle,
-        status="draft",
-    )
-    db.add(tour)
-    db.flush()
+    if existing_tour is not None:
+        tour = existing_tour
+        tour.team_lead = tour.team_lead or parsed.team_lead
+        tour.employee = tour.employee or parsed.employee
+        tour.vehicle = tour.vehicle or parsed.vehicle
+        row_offset = (
+            db.scalar(select(func.max(Stop.row_index)).where(Stop.tour_id == tour.id))
+            or -1
+        ) + 1
+    else:
+        tour = Tour(
+            customer=(parsed.customer or "Unknown").strip() or "Unknown",
+            calendar_week=parsed.calendar_week or 0,
+            date_from=_parse_iso_date(parsed.date_from) or date.today(),
+            date_to=_parse_iso_date(parsed.date_to) or date.today(),
+            team_lead=parsed.team_lead,
+            employee=parsed.employee,
+            vehicle=parsed.vehicle,
+            status=TourStatus.draft,
+        )
+        db.add(tour)
+        db.flush()
+        row_offset = 0
 
     for index, extracted in enumerate(parsed.stops):
         status_hint = extracted.status_hint or "unknown"
         stop = Stop(
             tour_id=tour.id,
-            row_index=index,
+            row_index=row_offset + index,
             date=_parse_iso_date(extracted.date),
             weekday=extracted.weekday,
             customer=extracted.customer,
@@ -166,14 +237,16 @@ def extract(
 def get_tour(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> Tour:
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
+    ensure_tour_visible(user, tour)
     return tour
 
 
-@router.patch("/{tour_id}", response_model=TourRead)
+@router.patch("/{tour_id}", response_model=TourRead, dependencies=[_PLANNERS])
 def update_tour(
     tour_id: int,
     update: TourUpdate,
@@ -192,7 +265,7 @@ def update_tour(
     return tour
 
 
-@router.get("/{tour_id}/draft", response_model=TourDraft)
+@router.get("/{tour_id}/draft", response_model=TourDraft, dependencies=[_READERS])
 def get_draft(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -204,7 +277,11 @@ def get_draft(
     return _build_draft(db, tour_id)
 
 
-@router.patch("/{tour_id}/draft/stops/{stop_id}", response_model=DraftStop)
+@router.patch(
+    "/{tour_id}/draft/stops/{stop_id}",
+    response_model=DraftStop,
+    dependencies=[_PLANNERS],
+)
 def patch_draft_stop(
     tour_id: int,
     stop_id: int,
@@ -257,10 +334,67 @@ def patch_draft_stop(
     return _draft_stop(stop)
 
 
+@router.post(
+    "/{tour_id}/stops",
+    response_model=DraftStop,
+    status_code=201,
+    dependencies=[_PLANNERS],
+)
+def add_stop(
+    tour_id: int,
+    payload: DraftStopCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> DraftStop:
+    """Add a stop by hand to a draft tour (the start-blank path). The stop is
+    catalog-matched and geocoded exactly like an extracted row."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    if tour.status != TourStatus.draft:
+        raise HTTPException(
+            status_code=409, detail="stops can only be added to a draft tour"
+        )
+
+    next_row = (
+        db.scalar(select(func.max(Stop.row_index)).where(Stop.tour_id == tour_id)) or -1
+    ) + 1
+    stop = Stop(
+        tour_id=tour_id,
+        row_index=next_row,
+        customer=payload.customer,
+        order_no=payload.order_no,
+        street=payload.street,
+        postal_code=payload.postal_code,
+        city=payload.city,
+        service_minutes=payload.service_minutes,
+        status="unconfirmed",
+        status_hint="pending",
+    )
+    for label in (payload.tasks or "").split(","):
+        label = label.strip()
+        if label:
+            stop.tasks.append(Task(task_type=label, raw_label=label))
+
+    store = match_store(db, payload.customer, payload.city, payload.postal_code)
+    if store is not None:
+        enrich_stop_from_store(stop, store)
+    else:
+        coords = geocode_address(db, payload.street, payload.postal_code, payload.city)
+        if coords is not None:
+            lon, lat = coords
+            stop.geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
+
+    db.add(stop)
+    db.commit()
+    db.refresh(stop, attribute_names=["tasks"])
+    return _draft_stop(stop)
+
+
 @router.get("/{tour_id}/stops", response_model=list[StopDetail])
 def list_stops(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> list[StopDetail]:
     """Committed stops with address, task labels, and geocoded coordinate.
 
@@ -271,6 +405,7 @@ def list_stops(
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
+    ensure_tour_visible(user, tour)
 
     stops = db.scalars(
         select(Stop)
@@ -340,22 +475,27 @@ def list_stops(
     return result
 
 
-@router.post("/{tour_id}/commit", response_model=CommitResult)
+@router.post("/{tour_id}/commit", response_model=CommitResult, dependencies=[_PLANNERS])
 def commit_tour(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
 ) -> CommitResult:
-    """Confirm a tour and best-effort enrich stop opening hours from OSM.
+    """Confirm a tour: geocode stragglers, flag duplicates, enrich OSM hours.
 
-    Geocoding is assumed to have run already (stops carry a geom). Only stops
-    whose hours are still unknown (hours_source='default') are looked up, so
-    manual and previously-fetched OSM hours are never overwritten.
+    Extraction/review already geocode on the way in, so only stops still
+    missing a coordinate are retried here. Only stops whose hours are still
+    unknown (hours_source='default') are looked up, so manual and
+    previously-fetched OSM hours are never overwritten. Suspected duplicate
+    rows (same catalog store, or same normalized street+PLZ) are reported for
+    the review UI to resolve — commit never deletes data on its own.
     """
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
 
-    stops = db.scalars(select(Stop).where(Stop.tour_id == tour_id)).all()
+    stops = db.scalars(
+        select(Stop).where(Stop.tour_id == tour_id).order_by(Stop.row_index)
+    ).all()
 
     enriched = 0
     for stop in stops:
@@ -363,6 +503,11 @@ def commit_tour(
         # 'unconfirmed'); a stop already marked 'done' keeps its status.
         if stop.status != "done":
             stop.status = "confirmed"
+
+        if stop.geom is None:
+            coords = geocode_address(db, stop.street, stop.postal_code, stop.city)
+            if coords is not None:
+                stop.geom = WKTElement(f"POINT({coords[0]} {coords[1]})", srid=4326)
 
         if stop.geom is None or stop.hours_source != HoursSource.default:
             continue
@@ -382,7 +527,9 @@ def commit_tour(
             stop.hours_source = HoursSource.osm
             enriched += 1
 
-    tour.status = "confirmed"
+    # Committing confirms the plan; re-commits on a live tour keep its stage.
+    if tour.status == TourStatus.draft:
+        tour.status = TourStatus.planned
     db.commit()
 
     return CommitResult(
@@ -390,10 +537,28 @@ def commit_tour(
         status=tour.status,
         stops_total=len(stops),
         stops_enriched=enriched,
+        duplicates=_duplicate_groups(stops),
     )
 
 
-@router.post("/{tour_id}/optimise", response_model=OptimiseResult)
+def _duplicate_groups(stops: list[Stop]) -> list[list[int]]:
+    """Stop-id groups that look like the same market listed twice."""
+    groups: dict[tuple, list[int]] = {}
+    for stop in stops:
+        if stop.store_id is not None:
+            key = ("store", stop.store_id)
+        else:
+            street = "".join(ch for ch in (stop.street or "").lower() if ch.isalnum())
+            if not street:
+                continue
+            key = ("addr", street, (stop.postal_code or "").strip())
+        groups.setdefault(key, []).append(stop.id)
+    return [ids for ids in groups.values() if len(ids) > 1]
+
+
+@router.post(
+    "/{tour_id}/optimise", response_model=OptimiseResult, dependencies=[_PLANNERS]
+)
 def optimise(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -413,13 +578,20 @@ def optimise(
     from_date = None
     if payload is not None and payload.scope == "remaining":
         from_date = payload.from_date or date.today()
-    return optimise_tour(db, tour, from_date=from_date)
+    result = optimise_tour(db, tour, from_date=from_date)
+
+    # A freshly optimised draft is planned; a mid-week replan keeps its stage.
+    if tour.status == TourStatus.draft:
+        tour.status = TourStatus.planned
+        db.commit()
+    return result
 
 
 @router.get("/{tour_id}/plan", response_model=OptimiseResult)
 def get_plan(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> OptimiseResult:
     """The stored schedule, without re-solving — what the map should load.
 
@@ -430,4 +602,57 @@ def get_plan(
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
+    ensure_tour_visible(user, tour)
     return current_plan(db, tour)
+
+
+@router.post("/{tour_id}/assign", response_model=TourRead, dependencies=[_PLANNERS])
+def assign_tour(
+    tour_id: int,
+    payload: TourAssignRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> Tour:
+    """Hand the tour to a worker: sets assigned_user_id and status 'assigned'.
+
+    Reassigning an in_progress tour keeps its stage; draft and done tours
+    cannot be assigned (commit the plan first / the week is over).
+    """
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    if tour.status in (TourStatus.draft, TourStatus.done):
+        raise HTTPException(
+            status_code=409, detail=f"cannot assign a {tour.status.value} tour"
+        )
+
+    user = db.get(User, payload.user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    if not user.is_active:
+        raise HTTPException(status_code=400, detail="user is deactivated")
+
+    tour.assigned_user_id = user.id
+    if tour.status != TourStatus.in_progress:
+        tour.status = TourStatus.assigned
+    db.commit()
+    db.refresh(tour)
+    return tour
+
+
+@router.post("/{tour_id}/unassign", response_model=TourRead, dependencies=[_PLANNERS])
+def unassign_tour(
+    tour_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> Tour:
+    """Take the tour back: clears the assignee; an untouched 'assigned' tour
+    returns to 'planned' (progress stages are kept)."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+
+    tour.assigned_user_id = None
+    if tour.status == TourStatus.assigned:
+        tour.status = TourStatus.planned
+    db.commit()
+    db.refresh(tour)
+    return tour

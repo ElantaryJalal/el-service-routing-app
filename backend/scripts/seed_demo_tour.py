@@ -17,7 +17,7 @@ from geoalchemy2.elements import WKTElement
 from app.db import SessionLocal
 from app.models.stop import HoursSource, Stop
 from app.models.task import Task
-from app.models.tour import Tour
+from app.models.tour import Tour, TourStatus
 
 DEMO_CUSTOMER = "DEMO Aldi Nord (Leipzig + Saxony-Anhalt)"
 
@@ -167,7 +167,7 @@ def main() -> None:
             date_from=date(2026, 7, 6),  # Mon
             date_to=date(2026, 7, 10),  # Fri
             employee="Demo Employee",
-            status="confirmed",
+            status=TourStatus.planned,
         )
         db.add(tour)
         db.flush()

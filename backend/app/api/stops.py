@@ -1,11 +1,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
 
+from app.api.deps import CurrentUser, ensure_tour_workable, require_role
 from app.db import get_db
 from app.models.stop import HoursSource, Stop
+from app.models.tour import Tour, TourStatus
+from app.models.user import Role
 from app.schemas.stop import (
     StopCompleteRequest,
     StopPlanUpdate,
@@ -16,8 +19,41 @@ from app.services.optimiser import move_stop
 
 router = APIRouter(prefix="/stops", tags=["stops"])
 
+# Editing stops-as-plan is a planning operation.
+_PLANNERS = Depends(require_role(Role.dispatcher, Role.admin))
 
-@router.patch("/{stop_id}", response_model=StopRead)
+
+def _refresh_tour_progress(db: Session, tour: Tour) -> None:
+    """Move the tour along its lifecycle from stop completion state.
+
+    First completed stop -> in_progress; every stop completed -> done;
+    completions all undone -> back to assigned (or planned if nobody is
+    assigned). Draft tours don't track progress.
+    """
+    if tour.status == TourStatus.draft:
+        return
+
+    total, completed = db.execute(
+        select(
+            func.count(Stop.id),
+            func.count(Stop.completed_at),
+        ).where(Stop.tour_id == tour.id)
+    ).one()
+
+    if completed == 0:
+        if tour.status in (TourStatus.in_progress, TourStatus.done):
+            tour.status = (
+                TourStatus.assigned
+                if tour.assigned_user_id is not None
+                else TourStatus.planned
+            )
+    elif completed < total:
+        tour.status = TourStatus.in_progress
+    else:
+        tour.status = TourStatus.done
+
+
+@router.patch("/{stop_id}", response_model=StopRead, dependencies=[_PLANNERS])
 def update_stop(
     stop_id: int,
     payload: StopUpdate,
@@ -41,7 +77,7 @@ def update_stop(
     return stop
 
 
-@router.patch("/{stop_id}/plan", response_model=StopRead)
+@router.patch("/{stop_id}/plan", response_model=StopRead, dependencies=[_PLANNERS])
 def update_stop_plan(
     stop_id: int,
     payload: StopPlanUpdate,
@@ -70,10 +106,25 @@ def update_stop_plan(
     return stop
 
 
+@router.delete("/{stop_id}", status_code=204, dependencies=[_PLANNERS])
+def delete_stop(
+    stop_id: int,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    """Remove a stop (e.g. a duplicate row flagged by commit). Feedback rows
+    keep their history — their stop_id FK nulls out."""
+    stop = db.get(Stop, stop_id)
+    if stop is None:
+        raise HTTPException(status_code=404, detail="stop not found")
+    db.delete(stop)
+    db.commit()
+
+
 @router.post("/{stop_id}/complete", response_model=StopRead)
 def complete_stop(
     stop_id: int,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
     payload: StopCompleteRequest | None = None,
 ) -> Stop:
     """Mark a stop done. Idempotent: a repeat call (e.g. an offline-sync
@@ -81,9 +132,12 @@ def complete_stop(
     stop = db.get(Stop, stop_id)
     if stop is None:
         raise HTTPException(status_code=404, detail="stop not found")
+    ensure_tour_workable(user, stop.tour)
 
     if stop.completed_at is None or (payload is not None and payload.force):
         stop.completed_at = func.now()
+        db.flush()
+        _refresh_tour_progress(db, stop.tour)
         db.commit()
         db.refresh(stop)
     return stop
@@ -93,14 +147,18 @@ def complete_stop(
 def uncomplete_stop(
     stop_id: int,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> Stop:
     """Undo a mis-tapped completion: clear completed_at. Idempotent."""
     stop = db.get(Stop, stop_id)
     if stop is None:
         raise HTTPException(status_code=404, detail="stop not found")
+    ensure_tour_workable(user, stop.tour)
 
     if stop.completed_at is not None:
         stop.completed_at = None
+        db.flush()
+        _refresh_tour_progress(db, stop.tour)
         db.commit()
         db.refresh(stop)
     return stop

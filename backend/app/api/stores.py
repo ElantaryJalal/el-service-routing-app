@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.deps import CurrentUser, require_role, worker_services_store
 from app.db import get_db
 from app.models.stop import Stop
 from app.models.store import Store
 from app.models.tour import Tour
+from app.models.user import Role, User
 from app.models.visit_feedback import VisitFeedback
 from app.schemas.feedback import FeedbackRead
 from app.schemas.store import (
@@ -19,6 +21,19 @@ from app.schemas.store import (
 from app.services.service_times import recompute_service_times
 
 router = APIRouter(prefix="/stores", tags=["stores"])
+
+_PLANNERS = Depends(require_role(Role.dispatcher, Role.admin))
+_READERS = Depends(require_role(Role.manager, Role.dispatcher, Role.admin))
+
+
+def _ensure_store_visible(db: Session, user: User, store_id: int) -> None:
+    """Office roles see every store; workers only stores on their tours."""
+    if user.role in (Role.manager, Role.dispatcher, Role.admin):
+        return
+    if worker_services_store(db, user, store_id):
+        return
+    raise HTTPException(status_code=403, detail="Store is not on your tours")
+
 
 # The three crowdsourced attributes; updated_by is audit metadata, not one of
 # them, so it alone must not bump attributes_updated_at.
@@ -55,7 +70,7 @@ def _store_read(db: Session, store: Store) -> StoreRead:
     )
 
 
-@router.get("", response_model=list[StoreRead])
+@router.get("", response_model=list[StoreRead], dependencies=[_READERS])
 def list_stores(
     db: Annotated[Session, Depends(get_db)],
     needs_attributes: bool | None = None,
@@ -76,7 +91,11 @@ def list_stores(
     return [_store_read(db, store) for store in db.scalars(query)]
 
 
-@router.post("/service-times/recompute", response_model=list[StoreServiceTimeRead])
+@router.post(
+    "/service-times/recompute",
+    response_model=list[StoreServiceTimeRead],
+    dependencies=[_PLANNERS],
+)
 def recompute_store_service_times(
     db: Annotated[Session, Depends(get_db)],
 ) -> list[StoreServiceTimeRead]:
@@ -97,14 +116,21 @@ def recompute_store_service_times(
 
 
 @router.get("/{store_id}", response_model=StoreRead)
-def get_store(store_id: int, db: Annotated[Session, Depends(get_db)]) -> StoreRead:
+def get_store(
+    store_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> StoreRead:
     store = db.get(Store, store_id)
     if store is None:
         raise HTTPException(status_code=404, detail="store not found")
+    _ensure_store_visible(db, user, store_id)
     return _store_read(db, store)
 
 
-@router.get("/{store_id}/visits", response_model=list[StoreVisit])
+@router.get(
+    "/{store_id}/visits", response_model=list[StoreVisit], dependencies=[_READERS]
+)
 def store_visits(
     store_id: int,
     db: Annotated[Session, Depends(get_db)],
@@ -143,12 +169,14 @@ def store_visits(
 def store_feedback(
     store_id: int,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> list[VisitFeedback]:
     """The store's full visit-feedback history, newest first (mobile detail
     view + dashboard). Feedback is append-only — no edit/delete anywhere; a
     wrong store *fact* is fixed via PATCH /stores/{id}/attributes instead."""
     if db.get(Store, store_id) is None:
         raise HTTPException(status_code=404, detail="store not found")
+    _ensure_store_visible(db, user, store_id)
     return list(
         db.scalars(
             select(VisitFeedback)
@@ -163,10 +191,18 @@ def update_store_attributes(
     store_id: int,
     payload: StoreAttributesUpdate,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> StoreRead:
     store = db.get(Store, store_id)
     if store is None:
         raise HTTPException(status_code=404, detail="store not found")
+
+    # Crowdsourcing: dispatchers/admins anywhere, workers only for stores on
+    # their own tours. Managers are read-only.
+    if user.role not in (Role.dispatcher, Role.admin) and not (
+        user.role == Role.worker and worker_services_store(db, user, store_id)
+    ):
+        raise HTTPException(status_code=403, detail="Store is not on your tours")
 
     fields = payload.model_dump(exclude_unset=True)
     if not _ATTRIBUTE_FIELDS & fields.keys():
@@ -176,7 +212,9 @@ def update_store_attributes(
         if key in _ATTRIBUTE_FIELDS:
             setattr(store, key, value)
     store.attributes_updated_at = func.now()
-    store.attributes_updated_by = fields.get("updated_by")
+    # The authenticated identity is the audit trail; the free-text payload
+    # field is legacy from before auth existed.
+    store.attributes_updated_by = user.name
 
     db.commit()
     db.refresh(store)

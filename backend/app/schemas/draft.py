@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 class DraftStop(BaseModel):
     id: int
+    customer: str | None
     street: str | None
     postal_code: str | None
     city: str | None
@@ -39,6 +40,20 @@ class DraftStopUpdate(BaseModel):
     omitted field via ``model_fields_set``.
     """
 
+    customer: str | None = None
+    street: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
+    order_no: str | None = None
+    tasks: str | None = None
+    service_minutes: int | None = Field(default=None, ge=30, le=600)
+
+
+class DraftStopCreate(BaseModel):
+    """A manually added stop (the dispatcher's start-blank path). The stop is
+    catalog-matched and geocoded exactly like an extracted row."""
+
+    customer: str | None = None
     street: str | None = None
     postal_code: str | None = None
     city: str | None = None

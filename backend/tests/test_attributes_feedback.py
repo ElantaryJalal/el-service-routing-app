@@ -90,7 +90,9 @@ def test_store_attributes_capture_and_completeness(seeded):
     assert body["size"] == "medium"
     assert body["attributes_complete"] is False
     assert body["attributes_updated_at"] is not None
-    assert body["attributes_updated_by"] == "Jalal"
+    # The audit name comes from the authenticated user (the conftest override
+    # admin here), not from the legacy free-text payload field.
+    assert body["attributes_updated_by"] == "Test Override Admin"
 
     # All three captured -> complete.
     body = client.patch(

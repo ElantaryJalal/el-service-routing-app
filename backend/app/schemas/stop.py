@@ -76,3 +76,6 @@ class CommitResult(BaseModel):
     status: str
     stops_total: int
     stops_enriched: int
+    # Groups of stop ids that look like the same market twice (same catalog
+    # store, or same normalized street+PLZ); the review UI prompts to resolve.
+    duplicates: list[list[int]] = []

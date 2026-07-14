@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     # /media. Relative to the backend working directory; gitignored.
     media_dir: str = "./media"
 
+    # --- Auth ---
+    # HS256 signing key for JWT access tokens. MUST be overridden in production.
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    # Long-lived by design: field crews may be offline for days. Deactivating a
+    # user still takes effect immediately because every request re-checks
+    # is_active against the database.
+    access_token_expire_minutes: int = 43200  # 30 days
+    # Initial admin credentials, consumed by `python -m scripts.seed_admin`.
+    admin_email: str = ""
+    admin_password: str = ""
+
     # --- Optimiser inputs ---
     # Where every tour week begins: the company base. The first working day's
     # route starts here; later days start open-ended (the crew overnights in

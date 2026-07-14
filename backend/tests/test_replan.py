@@ -16,7 +16,7 @@ from app.config import settings
 from app.db import SessionLocal, engine
 from app.main import app
 from app.models.stop import Stop
-from app.models.tour import DateMode, Tour
+from app.models.tour import DateMode, Tour, TourStatus
 from app.routing.vroom import VroomClient
 from app.services.optimiser import (
     REASON_NO_DAYS,
@@ -81,7 +81,7 @@ def db():
             calendar_week=27,
             date_from=MONDAY,
             date_to=FRIDAY,
-            status="confirmed",
+            status=TourStatus.planned,
             date_mode=date_mode,
         )
         session.add(tour)

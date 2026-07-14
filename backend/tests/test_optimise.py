@@ -14,7 +14,7 @@ from geoalchemy2.elements import WKTElement
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.models.stop import Stop
-from app.models.tour import DateMode, Tour
+from app.models.tour import DateMode, Tour, TourStatus
 from app.routing.vroom import VroomClient
 from app.services.optimiser import REASON_FAR_REGION, OptimiseConfig, optimise_tour
 
@@ -64,7 +64,7 @@ def _make_tour(db, date_from, date_to, specs, date_mode=DateMode.fixed):
         calendar_week=27,
         date_from=date_from,
         date_to=date_to,
-        status="confirmed",
+        status=TourStatus.planned,
         date_mode=date_mode,
     )
     db.add(tour)

@@ -15,19 +15,25 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.deps import CurrentUser, ensure_tour_workable, require_role
 from app.config import settings
 from app.db import get_db
 from app.models.stop import Stop
+from app.models.user import Role
 from app.models.visit_feedback import VisitFeedback
 from app.schemas.feedback import FeedbackCreate, FeedbackRead, PhotoUploadResult
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
+# Feedback is written by the field and the office, never by read-only managers.
+_WRITERS = Depends(require_role(Role.worker, Role.dispatcher, Role.admin))
+_READERS = Depends(require_role(Role.manager, Role.dispatcher, Role.admin))
+
 _PHOTO_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 _PHOTO_MAX_BYTES = 10 * 1024 * 1024
 
 
-@router.post("/photos", response_model=PhotoUploadResult)
+@router.post("/photos", response_model=PhotoUploadResult, dependencies=[_WRITERS])
 def upload_feedback_photo(
     image: Annotated[UploadFile, File()],
 ) -> PhotoUploadResult:
@@ -55,6 +61,7 @@ def create_feedback(
     payload: FeedbackCreate,
     response: Response,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> VisitFeedback:
     """Record after-visit feedback. Idempotent on client_uuid: an offline-sync
     retry of an already-stored POST returns the existing row (200, not 201)."""
@@ -68,12 +75,14 @@ def create_feedback(
     stop = db.get(Stop, payload.stop_id)
     if stop is None:
         raise HTTPException(status_code=404, detail="stop not found")
+    ensure_tour_workable(user, stop.tour)
 
     feedback = VisitFeedback(
         stop_id=stop.id,
         tour_id=stop.tour_id,
         store_id=stop.store_id,
-        employee=payload.employee,
+        # The authenticated identity wins; the payload field predates auth.
+        employee=user.name,
         tags=[tag.value for tag in payload.tags],
         note=payload.note,
         photo_path=payload.photo_path,
@@ -95,7 +104,7 @@ def create_feedback(
     return feedback
 
 
-@router.get("", response_model=list[FeedbackRead])
+@router.get("", response_model=list[FeedbackRead], dependencies=[_READERS])
 def list_feedback(
     db: Annotated[Session, Depends(get_db)],
     store_id: int | None = None,
