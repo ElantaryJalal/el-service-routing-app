@@ -8,15 +8,20 @@
  */
 import { Platform } from 'react-native';
 
+import { session } from '../state/session';
 import { API_BASE_URL } from './config';
 import type { components } from './types';
 
 type CommitResult = components['schemas']['CommitResult'];
+type TokenResponse = components['schemas']['TokenResponse'];
+type UserRead = components['schemas']['UserRead'];
 type OptimiseResult = components['schemas']['OptimiseResult'];
 type StopUpdate = components['schemas']['StopUpdate'];
 type StopRead = components['schemas']['StopRead'];
-type TourRead = components['schemas']['TourRead'];
 type TourUpdate = components['schemas']['TourUpdate'];
+
+/** A tour incl. lifecycle status and assignee (worker home screen). */
+export type TourRead = components['schemas']['TourRead'];
 type PhotoUploadResult = components['schemas']['PhotoUploadResult'];
 
 /** A catalog store incl. crowdsourced attributes (office view). */
@@ -137,11 +142,16 @@ function parseBody(text: string): unknown {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = session.getToken();
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
-      headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
+      headers: {
+        Accept: 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(init?.headers ?? {}),
+      },
     });
   } catch (err) {
     throw new ApiError(0, `Network error: ${String(err)}`);
@@ -149,6 +159,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   const body = parseBody(await res.text());
   if (!res.ok) {
+    // The token we sent no longer authenticates (expired/revoked): drop the
+    // session so the root layout's auth gate returns the user to /login.
+    // (Without a token a 401 is just a failed login attempt — keep it.)
+    if (res.status === 401 && token) void session.signOut();
     const detail =
       body && typeof body === 'object' && 'detail' in body
         ? String((body as { detail: unknown }).detail)
@@ -170,6 +184,21 @@ export const api = {
   /** Temporary health probe used by the Capture screen's Test connection button. */
   health(): Promise<Record<string, string>> {
     return request('/health');
+  },
+
+  /** POST /auth/login. On success the caller stores the session. */
+  login(email: string, password: string): Promise<TokenResponse> {
+    return request('/auth/login', jsonInit('POST', { email, password }));
+  },
+
+  /** The authenticated user (also validates a restored token). */
+  me(): Promise<UserRead> {
+    return request('/auth/me');
+  },
+
+  /** The caller's assigned/in-progress tours — the worker home screen. */
+  myTours(): Promise<TourRead[]> {
+    return request('/me/tours');
   },
 
   /**

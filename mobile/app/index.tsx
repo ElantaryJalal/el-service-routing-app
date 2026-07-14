@@ -12,7 +12,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 
 import { ApiError, api, type ImageFile } from '../src/api/client';
+import { MyToursList } from '../src/components/MyToursList';
 import { draftStore } from '../src/state/draftStore';
+import { useSession } from '../src/state/session';
 
 type Phase =
   | { name: 'idle' }
@@ -29,7 +31,15 @@ function toImageFile(uri: string): ImageFile {
   return { uri, name, type };
 }
 
-export default function CaptureScreen() {
+export default function HomeScreen() {
+  const { user } = useSession();
+  // Workers get their assigned tours; capture/extract is an office-role flow
+  // (the backend 403s it for workers anyway).
+  if (user?.role === 'worker') return <MyToursList />;
+  return <CaptureScreen />;
+}
+
+function CaptureScreen() {
   const [phase, setPhase] = useState<Phase>({ name: 'idle' });
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);

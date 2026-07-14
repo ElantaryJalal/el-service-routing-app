@@ -54,9 +54,14 @@ function backoffMs(attempts: number): number {
   return Math.min(BACKOFF_BASE_MS * 2 ** (attempts - 1), BACKOFF_MAX_MS);
 }
 
-/** "Try again later" (offline, backend down) vs. "rejected, don't retry". */
+/** "Try again later" (offline, backend down) vs. "rejected, don't retry".
+ * 401 is transient: the token expired or the worker was signed out — the
+ * write itself is fine and must survive until they log back in. */
 function isTransient(err: unknown): boolean {
-  return err instanceof ApiError && (err.status === 0 || err.status >= 500);
+  return (
+    err instanceof ApiError &&
+    (err.status === 0 || err.status === 401 || err.status >= 500)
+  );
 }
 
 async function perform(row: OutboxRow): Promise<void> {
@@ -267,6 +272,19 @@ export const outbox = {
       flushing = false;
       if (changed) notify();
     }
+  },
+
+  /** Clear any armed backoff and sync now — rows parked by 401s while signed
+   * out shouldn't keep waiting out their backoff after a successful login. */
+  async retryNow(): Promise<void> {
+    await init();
+    const now = Date.now();
+    for (const row of await outboxStore.pending()) {
+      if (row.next_attempt_at > now) {
+        await outboxStore.bumpRetry(row.id, row.attempts, 0);
+      }
+    }
+    await this.flush();
   },
 
   async status(): Promise<OutboxStatusSnapshot> {

@@ -4,6 +4,121 @@
  */
 
 export interface paths {
+    "/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Login */
+        post: operations["login_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Me */
+        get: operations["me_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/tours": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My Tours
+         * @description The caller's current workload: tours assigned to them that are still
+         *     assigned/in_progress. This is the worker's home-screen list.
+         */
+        get: operations["my_tours_me_tours_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Users */
+        get: operations["list_users_users_get"];
+        put?: never;
+        /** Create User */
+        post: operations["create_user_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update User */
+        patch: operations["update_user_users__user_id__patch"];
+        trace?: never;
+    };
+    "/tours": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tours
+         * @description All tours, newest week first, optionally filtered (the office list).
+         */
+        get: operations["list_tours_tours_get"];
+        put?: never;
+        /**
+         * Create Tour
+         * @description Create an empty draft tour (the dispatcher's New-tour flow); stops are
+         *     then added via photo extraction or POST /tours/{id}/stops.
+         */
+        post: operations["create_tour_tours_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tours/extract": {
         parameters: {
             query?: never;
@@ -22,6 +137,10 @@ export interface paths {
          *     best-effort (cached Nominatim), and returns the draft for the Confirm
          *     screen. Runs in a threadpool (sync def), so the multi-second model call
          *     doesn't block the event loop.
+         *
+         *     With ``tour_id`` the rows are appended to that existing draft tour instead
+         *     (the office New-tour flow creates the tour first, then uploads the photo);
+         *     the photo's header fields only fill blanks on the existing tour.
          */
         post: operations["extract_tours_extract_post"];
         delete?: never;
@@ -113,7 +232,12 @@ export interface paths {
          */
         get: operations["list_stops_tours__tour_id__stops_get"];
         put?: never;
-        post?: never;
+        /**
+         * Add Stop
+         * @description Add a stop by hand to a draft tour (the start-blank path). The stop is
+         *     catalog-matched and geocoded exactly like an extracted row.
+         */
+        post: operations["add_stop_tours__tour_id__stops_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -131,11 +255,14 @@ export interface paths {
         put?: never;
         /**
          * Commit Tour
-         * @description Confirm a tour and best-effort enrich stop opening hours from OSM.
+         * @description Confirm a tour: geocode stragglers, flag duplicates, enrich OSM hours.
          *
-         *     Geocoding is assumed to have run already (stops carry a geom). Only stops
-         *     whose hours are still unknown (hours_source='default') are looked up, so
-         *     manual and previously-fetched OSM hours are never overwritten.
+         *     Extraction/review already geocode on the way in, so only stops still
+         *     missing a coordinate are retried here. Only stops whose hours are still
+         *     unknown (hours_source='default') are looked up, so manual and
+         *     previously-fetched OSM hours are never overwritten. Suspected duplicate
+         *     rows (same catalog store, or same normalized street+PLZ) are reported for
+         *     the review UI to resolve — commit never deletes data on its own.
          */
         post: operations["commit_tour_tours__tour_id__commit_post"];
         delete?: never;
@@ -193,6 +320,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tours/{tour_id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assign Tour
+         * @description Hand the tour to a worker: sets assigned_user_id and status 'assigned'.
+         *
+         *     Reassigning an in_progress tour keeps its stage; draft and done tours
+         *     cannot be assigned (commit the plan first / the week is over).
+         */
+        post: operations["assign_tour_tours__tour_id__assign_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tours/{tour_id}/unassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unassign Tour
+         * @description Take the tour back: clears the assignee; an untouched 'assigned' tour
+         *     returns to 'planned' (progress stages are kept).
+         */
+        post: operations["unassign_tour_tours__tour_id__unassign_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stops/{stop_id}": {
         parameters: {
             query?: never;
@@ -203,7 +374,12 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Stop
+         * @description Remove a stop (e.g. a duplicate row flagged by commit). Feedback rows
+         *     keep their history — their stop_id FK nulls out.
+         */
+        delete: operations["delete_stop_stops__stop_id__delete"];
         options?: never;
         head?: never;
         /** Update Stop */
@@ -455,6 +631,8 @@ export interface components {
         Body_extract_tours_extract_post: {
             /** Image */
             image: string;
+            /** Tour Id */
+            tour_id?: number | null;
         };
         /** Body_upload_feedback_photo_feedback_photos_post */
         Body_upload_feedback_photo_feedback_photos_post: {
@@ -471,6 +649,11 @@ export interface components {
             stops_total: number;
             /** Stops Enriched */
             stops_enriched: number;
+            /**
+             * Duplicates
+             * @default []
+             */
+            duplicates: number[][];
         };
         /**
          * DateMode
@@ -513,6 +696,8 @@ export interface components {
         DraftStop: {
             /** Id */
             id: number;
+            /** Customer */
+            customer: string | null;
             /** Street */
             street: string | null;
             /** Postal Code */
@@ -533,6 +718,27 @@ export interface components {
             };
         };
         /**
+         * DraftStopCreate
+         * @description A manually added stop (the dispatcher's start-blank path). The stop is
+         *     catalog-matched and geocoded exactly like an extracted row.
+         */
+        DraftStopCreate: {
+            /** Customer */
+            customer?: string | null;
+            /** Street */
+            street?: string | null;
+            /** Postal Code */
+            postal_code?: string | null;
+            /** City */
+            city?: string | null;
+            /** Order No */
+            order_no?: string | null;
+            /** Tasks */
+            tasks?: string | null;
+            /** Service Minutes */
+            service_minutes?: number | null;
+        };
+        /**
          * DraftStopUpdate
          * @description PATCH body for a draft stop — only explicitly-set fields are applied.
          *
@@ -540,6 +746,8 @@ export interface components {
          *     omitted field via ``model_fields_set``.
          */
         DraftStopUpdate: {
+            /** Customer */
+            customer?: string | null;
             /** Street */
             street?: string | null;
             /** Postal Code */
@@ -620,6 +828,16 @@ export interface components {
          * @enum {string}
          */
         HoursSource: "osm" | "manual" | "default";
+        /** LoginRequest */
+        LoginRequest: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+        };
         /**
          * OptimiseRequest
          * @description Optional POST /tours/{id}/optimise body.
@@ -657,6 +875,15 @@ export interface components {
             /** Photo Path */
             photo_path: string;
         };
+        /**
+         * Role
+         * @description Access level of a user account.
+         *
+         *     worker: field employee servicing stops. dispatcher: plans and edits tours.
+         *     manager: office oversight. admin: full access incl. user management.
+         * @enum {string}
+         */
+        Role: "worker" | "dispatcher" | "manager" | "admin";
         /**
          * StopCompleteRequest
          * @description Body for POST /stops/{id}/complete. force re-stamps completed_at even
@@ -865,6 +1092,39 @@ export interface components {
             /** Completed At */
             completed_at: string | null;
         };
+        /** TokenResponse */
+        TokenResponse: {
+            /** Access Token */
+            access_token: string;
+            /**
+             * Token Type
+             * @default bearer
+             */
+            token_type: string;
+            user: components["schemas"]["UserRead"];
+        };
+        /** TourAssignRequest */
+        TourAssignRequest: {
+            /** User Id */
+            user_id: number;
+        };
+        /** TourCreate */
+        TourCreate: {
+            /** Customer */
+            customer: string;
+            /** Calendar Week */
+            calendar_week: number;
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+        };
         /** TourDraft */
         TourDraft: {
             /** Tour Id */
@@ -890,10 +1150,21 @@ export interface components {
              * Format: date
              */
             date_to: string;
-            /** Status */
-            status: string;
+            status: components["schemas"]["TourStatus"];
             date_mode: components["schemas"]["DateMode"];
+            /** Assigned User Id */
+            assigned_user_id: number | null;
         };
+        /**
+         * TourStatus
+         * @description Lifecycle of a tour.
+         *
+         *     draft: extracted, awaiting confirmation. planned: confirmed/optimised,
+         *     nobody assigned yet. assigned: a worker owns it. in_progress: first stop
+         *     completed. done: every stop completed.
+         * @enum {string}
+         */
+        TourStatus: "draft" | "planned" | "assigned" | "in_progress" | "done";
         /**
          * TourUpdate
          * @description Per-tour settings. Only provided fields are applied (PATCH).
@@ -907,6 +1178,53 @@ export interface components {
             stop_id: number;
             /** Reason */
             reason: string;
+        };
+        /** UserCreate */
+        UserCreate: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+            /** Name */
+            name: string;
+            role: components["schemas"]["Role"];
+        };
+        /**
+         * UserRead
+         * @description Public view of a user; password_hash is never exposed.
+         */
+        UserRead: {
+            /** Id */
+            id: number;
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Name */
+            name: string;
+            role: components["schemas"]["Role"];
+            /** Is Active */
+            is_active: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /**
+         * UserUpdate
+         * @description Only provided fields are applied (PATCH).
+         */
+        UserUpdate: {
+            /** Name */
+            name?: string | null;
+            role?: components["schemas"]["Role"] | null;
+            /** Is Active */
+            is_active?: boolean | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -930,6 +1248,243 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    login_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserRead"];
+                };
+            };
+        };
+    };
+    my_tours_me_tours_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourRead"][];
+                };
+            };
+        };
+    };
+    list_users_users_get: {
+        parameters: {
+            query?: {
+                role?: components["schemas"]["Role"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_user_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UserUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tours_tours_get: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["TourStatus"] | null;
+                assigned_user_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_tour_tours_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TourCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     extract_tours_extract_post: {
         parameters: {
             query?: never;
@@ -1127,6 +1682,41 @@ export interface operations {
             };
         };
     };
+    add_stop_tours__tour_id__stops_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DraftStopCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DraftStop"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     commit_tour_tours__tour_id__commit_post: {
         parameters: {
             query?: never;
@@ -1212,6 +1802,101 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["OptimiseResult"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assign_tour_tours__tour_id__assign_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TourAssignRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unassign_tour_tours__tour_id__unassign_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TourRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_stop_stops__stop_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
