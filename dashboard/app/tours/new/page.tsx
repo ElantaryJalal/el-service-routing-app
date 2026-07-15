@@ -119,7 +119,8 @@ function NewTourPage() {
           </div>
           {error && <p className="form-error">{error}</p>}
           <p className="muted small">
-            Next you can upload the photographed plan or add stops by hand.
+            Next you enter the plan&apos;s stops — same columns as the Excel
+            sheet.
           </p>
           <button className="btn btn-primary" type="submit" disabled={busy}>
             {busy ? <span className="spinner" /> : null}

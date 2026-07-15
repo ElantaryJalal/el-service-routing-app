@@ -271,12 +271,6 @@ export const api = {
   }) => request<Tour>("/tours", { method: "POST", body: JSON.stringify(body) }),
   updateTour: (id: number, body: { date_mode?: DateMode }) =>
     request<Tour>(`/tours/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  extract: (tourId: number, image: File) => {
-    const form = new FormData();
-    form.append("image", image);
-    form.append("tour_id", String(tourId));
-    return request<TourDraft>("/tours/extract", { method: "POST", body: form });
-  },
   getDraft: (id: number) => request<TourDraft>(`/tours/${id}/draft`),
   patchDraftStop: (
     tourId: number,

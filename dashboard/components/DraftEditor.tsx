@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   api,
   type CommitResult,
@@ -46,15 +46,15 @@ const EMPTY_ROW: Record<EditableField, string> = {
   service_minutes: "",
 };
 
-/** Review & correct: the extracted (or hand-entered) rows before commit. */
+/** Enter & correct the tour's rows before commit. The office keys the plan
+ * in from their Excel sheet (same columns); photo extraction is a mobile-only
+ * path, so drafts arriving from there can still carry confidence flags. */
 export default function DraftEditor({ tour, onCommitted }: Props) {
   const [rows, setRows] = useState<DraftStop[] | null>(null);
-  const [extracting, setExtracting] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newRow, setNewRow] = useState({ ...EMPTY_ROW });
   const [adding, setAdding] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api
@@ -62,20 +62,6 @@ export default function DraftEditor({ tour, onCommitted }: Props) {
       .then((d) => setRows(d.stops))
       .catch((e) => setError(String(e.message ?? e)));
   }, [tour.id]);
-
-  async function onPhotoChosen(file: File) {
-    setError(null);
-    setExtracting(true);
-    try {
-      const draft = await api.extract(tour.id, file);
-      setRows(draft.stops);
-    } catch (e) {
-      setError(`Extraction failed: ${String((e as Error).message ?? e)}`);
-    } finally {
-      setExtracting(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
 
   function cellValue(stop: DraftStop, field: EditableField): string {
     const v = stop[field];
@@ -158,35 +144,13 @@ export default function DraftEditor({ tour, onCommitted }: Props) {
 
   return (
     <>
-      <div className="card">
+      <div className="card" style={{ paddingBottom: 8 }}>
         <h2>1 · Add stops</h2>
         <p className="muted small" style={{ marginTop: 0 }}>
-          Upload the photographed plan — every readable row is extracted,
-          matched against the store catalog, and geocoded. Or add stops by hand
-          below.
+          Enter the plan rows just like in the Excel sheet — market, address,
+          order no., tasks. Known stores are matched against the catalog on
+          commit, so a name and PLZ are usually enough.
         </p>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void onPhotoChosen(f);
-          }}
-        />
-        <button
-          className="btn btn-primary"
-          disabled={extracting}
-          onClick={() => fileRef.current?.click()}
-        >
-          {extracting ? <span className="spinner" /> : null}
-          {extracting ? "Extracting… this can take a minute" : "Upload plan photo"}
-        </button>
-      </div>
-
-      <div className="card" style={{ paddingBottom: 8 }}>
-        <h2>2 · Review &amp; correct</h2>
         {hasLowConfidence && (
           <div className="banner banner-warn">
             Highlighted fields were hard to read on the photo — please verify
@@ -218,7 +182,7 @@ export default function DraftEditor({ tour, onCommitted }: Props) {
               ) : rows.length === 0 ? (
                 <tr>
                   <td colSpan={COLUMNS.length + 3} className="muted">
-                    No stops yet — upload a plan photo or add rows below.
+                    No stops yet — add the first row below.
                   </td>
                 </tr>
               ) : (
@@ -298,7 +262,7 @@ export default function DraftEditor({ tour, onCommitted }: Props) {
       </div>
 
       <div className="card">
-        <h2>3 · Commit</h2>
+        <h2>2 · Commit</h2>
         <p className="muted small" style={{ marginTop: 0 }}>
           Commit confirms the stops, geocodes anything still missing a
           location, fetches opening hours, and flags suspected duplicates.
