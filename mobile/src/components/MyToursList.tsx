@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   Pressable,
   RefreshControl,
@@ -13,7 +14,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { ApiError, api, type TourRead } from '../api/client';
 
@@ -43,8 +44,21 @@ export function MyToursList() {
     }
   }, []);
 
+  // Refresh whenever the screen regains focus (coming back from the map) and
+  // when the app returns to the foreground, so a tour assigned while the
+  // phone was pocketed appears without a reinstall.
+  // TODO: push notifications on assignment would make this instant.
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
   useEffect(() => {
-    void load();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void load();
+    });
+    return () => sub.remove();
   }, [load]);
 
   async function refresh() {

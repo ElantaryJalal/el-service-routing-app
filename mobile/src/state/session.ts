@@ -1,18 +1,38 @@
 /**
- * Signed-in session (JWT + user), persisted in AsyncStorage and mirrored in
- * memory so the API client can read the token synchronously on every request.
+ * Signed-in session (JWT + user), persisted securely and mirrored in memory
+ * so the API client can read the token synchronously on every request.
  * The root layout gates navigation on `useSession()`.
+ *
+ * At rest the session lives in the OS keychain/keystore (expo-secure-store)
+ * on device; the web build falls back to AsyncStorage (localStorage) because
+ * SecureStore does not exist in the browser.
  */
 import { useSyncExternalStore } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 
 import type { components } from '../api/types';
 
 export type User = components['schemas']['UserRead'];
 export type Role = components['schemas']['Role'];
 
-const TOKEN_KEY = 'session:token';
-const USER_KEY = 'session:user';
+// SecureStore keys only allow [A-Za-z0-9._-] — no colons.
+const TOKEN_KEY = 'session.token';
+const USER_KEY = 'session.user';
+
+const storage =
+  Platform.OS === 'web'
+    ? {
+        get: (key: string) => AsyncStorage.getItem(key),
+        set: (key: string, value: string) => AsyncStorage.setItem(key, value),
+        remove: (key: string) => AsyncStorage.removeItem(key),
+      }
+    : {
+        get: (key: string) => SecureStore.getItemAsync(key),
+        set: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+        remove: (key: string) => SecureStore.deleteItemAsync(key),
+      };
 
 export interface SessionSnapshot {
   /** false until the persisted session has been read once at startup. */
@@ -39,8 +59,8 @@ function load(): Promise<void> {
     loadPromise = (async () => {
       try {
         const [token, rawUser] = await Promise.all([
-          AsyncStorage.getItem(TOKEN_KEY),
-          AsyncStorage.getItem(USER_KEY),
+          storage.get(TOKEN_KEY),
+          storage.get(USER_KEY),
         ]);
         const user = rawUser ? (JSON.parse(rawUser) as User) : null;
         setSnapshot({
@@ -68,9 +88,9 @@ export const session = {
 
   async signIn(token: string, user: User): Promise<void> {
     setSnapshot({ ready: true, token, user });
-    await AsyncStorage.multiSet([
-      [TOKEN_KEY, token],
-      [USER_KEY, JSON.stringify(user)],
+    await Promise.all([
+      storage.set(TOKEN_KEY, token),
+      storage.set(USER_KEY, JSON.stringify(user)),
     ]);
   },
 
@@ -78,7 +98,7 @@ export const session = {
   async signOut(): Promise<void> {
     if (snapshot.ready && !snapshot.token && !snapshot.user) return;
     setSnapshot({ ready: true, token: null, user: null });
-    await AsyncStorage.multiRemove([TOKEN_KEY, USER_KEY]);
+    await Promise.all([storage.remove(TOKEN_KEY), storage.remove(USER_KEY)]);
   },
 
   subscribe(listener: Listener): () => void {
