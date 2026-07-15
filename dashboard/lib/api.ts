@@ -123,6 +123,16 @@ export interface Store {
   attributes_complete: boolean;
 }
 
+export interface StopSuggestion {
+  name: string;
+  street: string | null;
+  postal_code: string | null;
+  city: string | null;
+  service_minutes: number | null;
+  tasks: string | null;
+  source: "catalog" | "history";
+}
+
 export interface StoreVisit {
   stop_id: number;
   tour_id: number;
@@ -326,6 +336,8 @@ export const api = {
       `/stores${needsAttributes === undefined ? "" : `?needs_attributes=${needsAttributes}`}`,
     ),
   getStore: (id: number) => request<Store>(`/stores/${id}`),
+  suggestStops: (q: string) =>
+    request<StopSuggestion[]>(`/stores/suggest?q=${encodeURIComponent(q)}`),
   storeVisits: (id: number) => request<StoreVisit[]>(`/stores/${id}/visits`),
   storeFeedback: (id: number) => request<Feedback[]>(`/stores/${id}/feedback`),
   updateStoreAttributes: (

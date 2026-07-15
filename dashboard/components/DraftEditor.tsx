@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   api,
   type CommitResult,
   type DraftStop,
+  type StopSuggestion,
   type Tour,
 } from "@/lib/api";
 
@@ -55,6 +56,14 @@ export default function DraftEditor({ tour, onCommitted }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [newRow, setNewRow] = useState({ ...EMPTY_ROW });
   const [adding, setAdding] = useState(false);
+  // Type-ahead on the Market cell: known stores + markets from past tours.
+  const [suggestions, setSuggestions] = useState<StopSuggestion[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
+  // Viewport position for the dropdown: position:fixed escapes the table's
+  // overflow-x scroll container, which would otherwise clip the list.
+  const [suggestPos, setSuggestPos] = useState({ top: 0, left: 0 });
+  const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     api
@@ -99,6 +108,63 @@ export default function DraftEditor({ tour, onCommitted }: Props) {
       setRows((prev) => (prev ?? []).filter((r) => r.id !== stopId));
     } catch (e) {
       setError(String((e as Error).message ?? e));
+    }
+  }
+
+  function onMarketTyped(value: string, input: HTMLInputElement) {
+    const rect = input.getBoundingClientRect();
+    setSuggestPos({ top: rect.bottom + 2, left: rect.left });
+    setNewRow((prev) => ({ ...prev, customer: value }));
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    const q = value.trim();
+    if (q.length < 2) {
+      setSuggestOpen(false);
+      setSuggestions([]);
+      return;
+    }
+    suggestTimer.current = setTimeout(() => {
+      api
+        .suggestStops(q)
+        .then((items) => {
+          setSuggestions(items);
+          setHighlighted(0);
+          setSuggestOpen(items.length > 0);
+        })
+        .catch(() => setSuggestOpen(false));
+    }, 200);
+  }
+
+  function pickSuggestion(s: StopSuggestion) {
+    setNewRow((prev) => ({
+      ...prev,
+      customer: s.name,
+      street: s.street ?? "",
+      postal_code: s.postal_code ?? "",
+      city: s.city ?? "",
+      tasks: prev.tasks || (s.tasks ?? ""),
+      service_minutes:
+        prev.service_minutes ||
+        (s.service_minutes != null ? String(s.service_minutes) : ""),
+    }));
+    setSuggestOpen(false);
+  }
+
+  function onMarketKeyDown(e: React.KeyboardEvent) {
+    if (!suggestOpen) {
+      if (e.key === "Enter") void addRow();
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlighted((h) => (h + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlighted((h) => (h - 1 + suggestions.length) % suggestions.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      pickSuggestion(suggestions[highlighted]);
+    } else if (e.key === "Escape") {
+      setSuggestOpen(false);
     }
   }
 
@@ -226,25 +292,76 @@ export default function DraftEditor({ tour, onCommitted }: Props) {
               {/* manual add row */}
               <tr>
                 <td className="muted">+</td>
-                {COLUMNS.map((col) => (
-                  <td key={col.field}>
-                    <input
-                      className="cell-input"
-                      placeholder={col.label}
-                      aria-label={`New stop ${col.label}`}
-                      value={newRow[col.field]}
-                      onChange={(e) =>
-                        setNewRow((prev) => ({
-                          ...prev,
-                          [col.field]: e.target.value,
-                        }))
-                      }
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void addRow();
-                      }}
-                    />
-                  </td>
-                ))}
+                {COLUMNS.map((col) =>
+                  col.field === "customer" ? (
+                    <td key={col.field} className="suggest-wrap">
+                      <input
+                        className="cell-input"
+                        placeholder="Market"
+                        aria-label="New stop Market"
+                        aria-autocomplete="list"
+                        aria-expanded={suggestOpen}
+                        value={newRow.customer}
+                        onChange={(e) => onMarketTyped(e.target.value, e.target)}
+                        onKeyDown={onMarketKeyDown}
+                        onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                      />
+                      {suggestOpen && (
+                        <div
+                          className="suggest-list"
+                          role="listbox"
+                          style={{ top: suggestPos.top, left: suggestPos.left }}
+                        >
+                          {suggestions.map((s, i) => (
+                            <div
+                              key={`${s.name}|${s.street}|${s.postal_code}`}
+                              role="option"
+                              aria-selected={i === highlighted}
+                              className={`suggest-item${i === highlighted ? " active" : ""}`}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                pickSuggestion(s);
+                              }}
+                              onMouseEnter={() => setHighlighted(i)}
+                            >
+                              <div>
+                                {s.name}
+                                {s.source === "history" && (
+                                  <span className="chip" style={{ marginLeft: 6 }}>
+                                    previous tour
+                                  </span>
+                                )}
+                              </div>
+                              <div className="sub">
+                                {[s.street, [s.postal_code, s.city].filter(Boolean).join(" ")]
+                                  .filter(Boolean)
+                                  .join(", ") || "no address on file"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  ) : (
+                    <td key={col.field}>
+                      <input
+                        className="cell-input"
+                        placeholder={col.label}
+                        aria-label={`New stop ${col.label}`}
+                        value={newRow[col.field]}
+                        onChange={(e) =>
+                          setNewRow((prev) => ({
+                            ...prev,
+                            [col.field]: e.target.value,
+                          }))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void addRow();
+                        }}
+                      />
+                    </td>
+                  ),
+                )}
                 <td />
                 <td>
                   <button

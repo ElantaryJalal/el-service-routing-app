@@ -1,8 +1,24 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.models.store import StoreSize
+
+
+class StopSuggestion(BaseModel):
+    """A type-ahead suggestion for the draft editor: a known place the typed
+    text matches, with everything needed to fill the row in one click.
+    Sourced from the store catalog and, for markets that never made it into
+    the catalog, from stops on previous tours."""
+
+    name: str
+    street: str | None
+    postal_code: str | None
+    city: str | None
+    service_minutes: int | None
+    tasks: str | None
+    source: Literal["catalog", "history"]
 
 
 class StoreAttributesUpdate(BaseModel):

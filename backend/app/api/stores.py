@@ -1,7 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, require_role, worker_services_store
@@ -13,6 +13,7 @@ from app.models.user import Role, User
 from app.models.visit_feedback import VisitFeedback
 from app.schemas.feedback import FeedbackRead
 from app.schemas.store import (
+    StopSuggestion,
     StoreAttributesUpdate,
     StoreRead,
     StoreServiceTimeRead,
@@ -89,6 +90,88 @@ def list_stores(
     elif needs_attributes is False:
         query = query.where(~missing)
     return [_store_read(db, store) for store in db.scalars(query)]
+
+
+@router.get("/suggest", response_model=list[StopSuggestion], dependencies=[_READERS])
+def suggest_stops(
+    db: Annotated[Session, Depends(get_db)],
+    q: Annotated[str, Query(min_length=2, max_length=80)],
+    limit: Annotated[int, Query(ge=1, le=20)] = 8,
+) -> list[StopSuggestion]:
+    """Type-ahead for the draft editor: match the typed text against store
+    names/aliases/addresses in the catalog, then against stops of previous
+    tours that never matched a catalog store. Catalog hits come first — they
+    carry the canonical address and default tasks/minutes."""
+    pattern = f"%{q.strip()}%"
+
+    suggestions: list[StopSuggestion] = []
+    for store in db.scalars(
+        select(Store)
+        .where(
+            or_(
+                Store.name.ilike(pattern),
+                Store.street.ilike(pattern),
+                Store.city.ilike(pattern),
+                Store.aliases.cast(String).ilike(pattern),
+            )
+        )
+        .order_by(Store.name)
+        .limit(limit)
+    ):
+        suggestions.append(
+            StopSuggestion(
+                name=store.name,
+                street=store.street,
+                postal_code=store.postal_code,
+                city=store.city,
+                service_minutes=store.learned_service_minutes
+                or store.default_service_minutes,
+                tasks=", ".join(store.default_tasks) if store.default_tasks else None,
+                source="catalog",
+            )
+        )
+
+    room = limit - len(suggestions)
+    if room > 0:
+        seen = {
+            (s.name.lower(), (s.street or "").lower(), s.postal_code or "")
+            for s in suggestions
+        }
+        rows = db.execute(
+            select(Stop.customer, Stop.street, Stop.postal_code, Stop.city)
+            .where(
+                Stop.store_id.is_(None),
+                Stop.customer.isnot(None),
+                or_(
+                    Stop.customer.ilike(pattern),
+                    Stop.street.ilike(pattern),
+                    Stop.city.ilike(pattern),
+                ),
+            )
+            .distinct()
+            .order_by(Stop.customer)
+            .limit(room * 3)
+        ).all()
+        for customer, street, postal_code, city in rows:
+            key = (customer.lower(), (street or "").lower(), postal_code or "")
+            if key in seen:
+                continue
+            seen.add(key)
+            suggestions.append(
+                StopSuggestion(
+                    name=customer,
+                    street=street,
+                    postal_code=postal_code,
+                    city=city,
+                    service_minutes=None,
+                    tasks=None,
+                    source="history",
+                )
+            )
+            if len(suggestions) >= limit:
+                break
+
+    return suggestions
 
 
 @router.post(

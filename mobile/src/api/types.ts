@@ -457,6 +457,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stores/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Suggest Stops
+         * @description Type-ahead for the draft editor: match the typed text against store
+         *     names/aliases/addresses in the catalog, then against stops of previous
+         *     tours that never matched a catalog store. Catalog hits come first — they
+         *     carry the canonical address and default tasks/minutes.
+         */
+        get: operations["suggest_stops_stores_suggest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stores/service-times/recompute": {
         parameters: {
             query?: never;
@@ -1090,6 +1113,32 @@ export interface components {
             eta?: string | null;
             /** Unassigned Reason */
             unassigned_reason?: string | null;
+        };
+        /**
+         * StopSuggestion
+         * @description A type-ahead suggestion for the draft editor: a known place the typed
+         *     text matches, with everything needed to fill the row in one click.
+         *     Sourced from the store catalog and, for markets that never made it into
+         *     the catalog, from stops on previous tours.
+         */
+        StopSuggestion: {
+            /** Name */
+            name: string;
+            /** Street */
+            street: string | null;
+            /** Postal Code */
+            postal_code: string | null;
+            /** City */
+            city: string | null;
+            /** Service Minutes */
+            service_minutes: number | null;
+            /** Tasks */
+            tasks: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "catalog" | "history";
         };
         /**
          * StopUpdate
@@ -2187,6 +2236,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StoreRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    suggest_stops_stores_suggest_get: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopSuggestion"][];
                 };
             };
             /** @description Validation Error */
