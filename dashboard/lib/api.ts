@@ -133,6 +133,13 @@ export interface StopSuggestion {
   source: "catalog" | "history";
 }
 
+export interface StoreServiceTime {
+  store_id: number;
+  name: string;
+  samples: number;
+  learned_service_minutes: number | null;
+}
+
 export interface StoreVisit {
   stop_id: number;
   tour_id: number;
@@ -336,6 +343,10 @@ export const api = {
       `/stores${needsAttributes === undefined ? "" : `?needs_attributes=${needsAttributes}`}`,
     ),
   getStore: (id: number) => request<Store>(`/stores/${id}`),
+  recomputeServiceTimes: () =>
+    request<StoreServiceTime[]>("/stores/service-times/recompute", {
+      method: "POST",
+    }),
   suggestStops: (q: string) =>
     request<StopSuggestion[]>(`/stores/suggest?q=${encodeURIComponent(q)}`),
   storeVisits: (id: number) => request<StoreVisit[]>(`/stores/${id}/visits`),

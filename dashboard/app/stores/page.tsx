@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import { Protected } from "@/lib/auth";
+import { Protected, useAuth } from "@/lib/auth";
 import { api, type Store } from "@/lib/api";
 
 type Filter = "all" | "needs" | "complete";
@@ -15,9 +15,12 @@ function tri(v: boolean | null): string {
 
 function StoresPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [stores, setStores] = useState<Store[] | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
+  const [recomputing, setRecomputing] = useState(false);
+  const [recomputeResult, setRecomputeResult] = useState<string | null>(null);
 
   useEffect(() => {
     const needs =
@@ -29,11 +32,45 @@ function StoresPage() {
       .catch((e) => setError(String(e.message ?? e)));
   }, [filter]);
 
+  async function recompute() {
+    setRecomputing(true);
+    setError(null);
+    setRecomputeResult(null);
+    try {
+      const entries = await api.recomputeServiceTimes();
+      const learned = entries.filter(
+        (e) => e.learned_service_minutes !== null,
+      ).length;
+      const samples = entries.reduce((sum, e) => sum + e.samples, 0);
+      setRecomputeResult(
+        `Learned service times for ${learned} of ${entries.length} stores ` +
+          `from ${samples} completed-visit observations.`,
+      );
+      const needs =
+        filter === "all" ? undefined : filter === "needs" ? true : false;
+      setStores(await api.listStores(needs));
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setRecomputing(false);
+    }
+  }
+
   return (
     <AppShell>
       <div className="page-head">
         <h1>Stores</h1>
         <div style={{ display: "flex", gap: 6 }}>
+          {(user?.role === "dispatcher" || user?.role === "admin") && (
+            <button
+              className="btn btn-sm"
+              disabled={recomputing}
+              onClick={recompute}
+              title="Re-learn per-store service durations from completion history"
+            >
+              {recomputing ? "Recomputing…" : "Recompute service times"}
+            </button>
+          )}
           {(
             [
               ["all", "All"],
@@ -53,6 +90,9 @@ function StoresPage() {
       </div>
 
       {error && <div className="banner banner-error">{error}</div>}
+      {recomputeResult && (
+        <div className="banner banner-ok">{recomputeResult}</div>
+      )}
 
       <div className="card" style={{ padding: 0 }}>
         <div className="table-wrap">
