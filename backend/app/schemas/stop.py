@@ -44,6 +44,9 @@ class StopRead(BaseModel):
     # Plan placement — set by the optimiser or a manual move (PATCH .../plan).
     assigned_day: date | None = None
     sequence: int | None = None
+    # Predicted arrival from the stored plan; with completed_at this is the
+    # actual-vs-predicted pair the dashboard reports on.
+    eta: datetime | None = None
     unassigned_reason: str | None = None
 
 

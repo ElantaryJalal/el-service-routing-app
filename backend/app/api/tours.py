@@ -453,6 +453,7 @@ def list_stops(
                 completed_at=stop.completed_at,
                 assigned_day=stop.assigned_day,
                 sequence=stop.sequence,
+                eta=stop.eta,
                 unassigned_reason=stop.unassigned_reason,
                 street=stop.street,
                 postal_code=stop.postal_code,

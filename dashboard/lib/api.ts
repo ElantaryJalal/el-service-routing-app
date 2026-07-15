@@ -69,6 +69,7 @@ export interface StopDetail {
   completed_at: string | null;
   assigned_day: string | null;
   sequence: number | null;
+  eta: string | null;
   unassigned_reason: string | null;
   street: string | null;
   postal_code: string | null;
@@ -143,6 +144,43 @@ export interface Feedback {
   note: string | null;
   photo_path: string | null;
   created_at: string;
+}
+
+export interface DayLoad {
+  day: string;
+  planned: number;
+  completed: number;
+}
+
+export interface OverviewReport {
+  date_from: string;
+  date_to: string;
+  tours: {
+    total: number;
+    draft: number;
+    planned: number;
+    assigned: number;
+    in_progress: number;
+    done: number;
+  };
+  stops_planned: number;
+  stops_completed: number;
+  days: DayLoad[];
+  on_time: {
+    sample_count: number;
+    on_time_count: number;
+    on_time_rate: number | null;
+    average_delta_minutes: number | null;
+    tolerance_minutes: number;
+  };
+  outstanding: {
+    stop_id: number;
+    tour_id: number;
+    customer: string | null;
+    city: string | null;
+    assigned_day: string | null;
+    eta: string | null;
+  }[];
 }
 
 const TOKEN_KEY = "office:token";
@@ -272,6 +310,21 @@ export const api = {
     }),
   unassign: (tourId: number) =>
     request<Tour>(`/tours/${tourId}/unassign`, { method: "POST" }),
+
+  // reports
+  overview: (dateFrom?: string, dateTo?: string) =>
+    request<OverviewReport>(
+      `/reports/overview${dateFrom && dateTo ? `?date_from=${dateFrom}&date_to=${dateTo}` : ""}`,
+    ),
+
+  // feedback
+  listFeedback: (params: { tourId?: number; stopId?: number }) => {
+    const q = new URLSearchParams();
+    if (params.tourId !== undefined) q.set("tour_id", String(params.tourId));
+    if (params.stopId !== undefined) q.set("stop_id", String(params.stopId));
+    const qs = q.toString();
+    return request<Feedback[]>(`/feedback${qs ? `?${qs}` : ""}`);
+  },
 
   // stores
   listStores: (needsAttributes?: boolean) =>

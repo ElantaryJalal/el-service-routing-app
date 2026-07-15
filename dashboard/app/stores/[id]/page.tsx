@@ -61,6 +61,15 @@ function StoreDetailPage() {
     .filter(Boolean)
     .join(", ");
 
+  // Tag frequency across the store's whole feedback history; a tag reported
+  // 3+ times is a recurring issue worth calling out.
+  const counts = new Map<string, number>();
+  for (const f of feedback) {
+    for (const t of f.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  const tagCounts = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const recurring = tagCounts.filter(([, count]) => count >= 3);
+
   return (
     <AppShell>
       <div className="page-head">
@@ -136,6 +145,21 @@ function StoreDetailPage() {
 
           <div className="card">
             <h2>Visit feedback</h2>
+            {tagCounts.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                {tagCounts.map(([tag, count]) => (
+                  <span key={tag} className="chip">
+                    {tag.replace(/_/g, " ")} ×{count}
+                  </span>
+                ))}
+              </div>
+            )}
+            {recurring.map(([tag, count]) => (
+              <div key={tag} className="banner banner-warn" style={{ marginBottom: 8 }}>
+                <strong>Recurring issue:</strong> “{tag.replace(/_/g, " ")}” has been
+                reported {count} times at this store.
+              </div>
+            ))}
             {feedback.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
                 No feedback yet.

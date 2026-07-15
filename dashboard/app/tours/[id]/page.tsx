@@ -84,15 +84,22 @@ function TourWorkspace() {
             KW {tour.calendar_week} · {tour.date_from} → {tour.date_to}
           </div>
         </div>
-        <div className="step-dots" aria-label="Progress">
-          {STEPS.map((label, i) => (
-            <span
-              key={label}
-              className={`step ${i < current ? "done" : i === current ? "current" : ""}`}
-            >
-              {i < current ? "✓" : `${i + 1}.`} {label}
-            </span>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          {(tour.status === "in_progress" || tour.status === "done") && (
+            <Link className="btn btn-sm" href={`/tours/${tour.id}/proof`}>
+              Proof of work
+            </Link>
+          )}
+          <div className="step-dots" aria-label="Progress">
+            {STEPS.map((label, i) => (
+              <span
+                key={label}
+                className={`step ${i < current ? "done" : i === current ? "current" : ""}`}
+              >
+                {i < current ? "✓" : `${i + 1}.`} {label}
+              </span>
+            ))}
+          </div>
         </div>
       </div>
 

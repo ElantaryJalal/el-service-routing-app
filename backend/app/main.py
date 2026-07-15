@@ -16,6 +16,7 @@ from app.api import (
     auth_router,
     feedback_router,
     me_router,
+    reports_router,
     stops_router,
     stores_router,
     tours_router,
@@ -41,6 +42,7 @@ app.include_router(tours_router)
 app.include_router(stops_router)
 app.include_router(stores_router)
 app.include_router(feedback_router)
+app.include_router(reports_router)
 
 # Uploaded visit-feedback photos; photo_path values are relative URLs under
 # this mount ("media/feedback/<uuid>.jpg").

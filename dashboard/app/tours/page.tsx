@@ -108,18 +108,19 @@ function ToursPage() {
                 <th>Dates</th>
                 <th>Status</th>
                 <th>Assignee</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {tours === null ? (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={7} className="muted">
                     Loading…
                   </td>
                 </tr>
               ) : visible.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={7} className="muted">
                     No tours match the current filters.
                   </td>
                 </tr>
@@ -146,6 +147,13 @@ function ToursPage() {
                         ? (byId.get(t.assigned_user_id)?.name ??
                           `user ${t.assigned_user_id}`)
                         : <span className="muted">—</span>}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {(t.status === "in_progress" || t.status === "done") && (
+                        <Link className="small" href={`/tours/${t.id}/proof`}>
+                          Proof of work
+                        </Link>
+                      )}
                     </td>
                   </tr>
                 ))

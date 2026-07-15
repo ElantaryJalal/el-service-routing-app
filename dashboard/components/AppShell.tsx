@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import type { ReactNode } from "react";
 
 const NAV = [
+  { href: "/overview", label: "Overview" },
   { href: "/tours", label: "Tours" },
   { href: "/stores", label: "Stores" },
 ];
@@ -18,7 +19,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <>
       <header className="shell-header">
         <div className="shell-brand">
-          <Link href="/tours">EL Service · Office</Link>
+          <Link href="/overview">EL Service · Office</Link>
         </div>
         <nav className="shell-nav">
           {NAV.map((item) => (

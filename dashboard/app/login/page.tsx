@@ -19,7 +19,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       await login(email, password);
-      router.replace("/tours");
+      router.replace("/overview");
     } catch (err) {
       setError(
         err instanceof ApiError && err.status === 401

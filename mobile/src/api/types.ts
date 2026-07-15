@@ -606,6 +606,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/reports/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Overview
+         * @description This-week snapshot: tour/stop completion counts, per-day load,
+         *     punctuality vs. predicted ETA, and the markets still outstanding.
+         *
+         *     Defaults to the current ISO week; pass date_from/date_to for another
+         *     range. A tour is in scope when its dates overlap the range; draft tours
+         *     count in the tour breakdown but their (unconfirmed) stops are excluded
+         *     from the work KPIs.
+         */
+        get: operations["overview_reports_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -665,6 +691,21 @@ export interface components {
          * @enum {string}
          */
         DateMode: "fixed" | "optimized";
+        /**
+         * DayLoad
+         * @description One day of the week: stops planned for it vs. work completed on it.
+         */
+        DayLoad: {
+            /**
+             * Day
+             * Format: date
+             */
+            day: string;
+            /** Planned */
+            planned: number;
+            /** Completed */
+            completed: number;
+        };
         /** DayStop */
         DayStop: {
             /** Stop Id */
@@ -839,6 +880,23 @@ export interface components {
             password: string;
         };
         /**
+         * OnTimeStats
+         * @description Completion punctuality over stops that have both an ETA and a
+         *     completion timestamp. on_time means completed_at <= eta + tolerance.
+         */
+        OnTimeStats: {
+            /** Sample Count */
+            sample_count: number;
+            /** On Time Count */
+            on_time_count: number;
+            /** On Time Rate */
+            on_time_rate: number | null;
+            /** Average Delta Minutes */
+            average_delta_minutes: number | null;
+            /** Tolerance Minutes */
+            tolerance_minutes: number;
+        };
+        /**
          * OptimiseRequest
          * @description Optional POST /tours/{id}/optimise body.
          *
@@ -866,6 +924,50 @@ export interface components {
             days: components["schemas"]["DaySummary"][];
             /** Unassigned */
             unassigned: components["schemas"]["UnassignedStop"][];
+        };
+        /**
+         * OutstandingStop
+         * @description A market still waiting to be serviced this week.
+         */
+        OutstandingStop: {
+            /** Stop Id */
+            stop_id: number;
+            /** Tour Id */
+            tour_id: number;
+            /** Customer */
+            customer: string | null;
+            /** City */
+            city: string | null;
+            /** Assigned Day */
+            assigned_day: string | null;
+            /** Eta */
+            eta: string | null;
+        };
+        /**
+         * OverviewReport
+         * @description The executive this-week snapshot: work planned vs. work completed.
+         */
+        OverviewReport: {
+            /**
+             * Date From
+             * Format: date
+             */
+            date_from: string;
+            /**
+             * Date To
+             * Format: date
+             */
+            date_to: string;
+            tours: components["schemas"]["TourCounts"];
+            /** Stops Planned */
+            stops_planned: number;
+            /** Stops Completed */
+            stops_completed: number;
+            /** Days */
+            days: components["schemas"]["DayLoad"][];
+            on_time: components["schemas"]["OnTimeStats"];
+            /** Outstanding */
+            outstanding: components["schemas"]["OutstandingStop"][];
         };
         /**
          * PhotoUploadResult
@@ -924,6 +1026,8 @@ export interface components {
             assigned_day?: string | null;
             /** Sequence */
             sequence?: number | null;
+            /** Eta */
+            eta?: string | null;
             /** Unassigned Reason */
             unassigned_reason?: string | null;
             /** Street */
@@ -982,6 +1086,8 @@ export interface components {
             assigned_day?: string | null;
             /** Sequence */
             sequence?: number | null;
+            /** Eta */
+            eta?: string | null;
             /** Unassigned Reason */
             unassigned_reason?: string | null;
         };
@@ -1107,6 +1213,24 @@ export interface components {
         TourAssignRequest: {
             /** User Id */
             user_id: number;
+        };
+        /**
+         * TourCounts
+         * @description Tours overlapping the reporting week, by lifecycle status.
+         */
+        TourCounts: {
+            /** Total */
+            total: number;
+            /** Draft */
+            draft: number;
+            /** Planned */
+            planned: number;
+            /** Assigned */
+            assigned: number;
+            /** In Progress */
+            in_progress: number;
+            /** Done */
+            done: number;
         };
         /** TourCreate */
         TourCreate: {
@@ -2310,6 +2434,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FeedbackRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overview_reports_overview_get: {
+        parameters: {
+            query?: {
+                date_from?: string | null;
+                date_to?: string | null;
+                tolerance_minutes?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewReport"];
                 };
             };
             /** @description Validation Error */
