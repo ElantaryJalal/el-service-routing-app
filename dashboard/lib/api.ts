@@ -103,6 +103,14 @@ export interface Plan {
   unassigned: { stop_id: number; reason: string }[];
 }
 
+export interface ServiceProfileTime {
+  /** Canonical key of the visit's task set (sorted, case-folded). */
+  task_signature: string;
+  tasks_label: string | null;
+  samples: number;
+  learned_minutes: number | null;
+}
+
 export interface Store {
   id: number;
   name: string;
@@ -115,6 +123,8 @@ export interface Store {
   default_service_minutes: number | null;
   learned_service_minutes: number | null;
   service_time_samples: number;
+  /** Learned per service profile; the store-wide value is the fallback. */
+  service_times: ServiceProfileTime[];
   size: "small" | "medium" | "large" | null;
   in_mall: boolean | null;
   has_parking: boolean | null;

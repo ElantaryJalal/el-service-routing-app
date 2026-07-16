@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import type { Role } from "@/lib/api";
 import type { ReactNode } from "react";
 
-const NAV = [
+const NAV: { href: string; label: string; roles?: Role[] }[] = [
   { href: "/overview", label: "Overview" },
+  { href: "/analytics", label: "Analytics", roles: ["manager", "admin"] },
   { href: "/tours", label: "Tours" },
   { href: "/stores", label: "Stores" },
 ];
@@ -14,6 +16,7 @@ const NAV = [
 export default function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const pathname = usePathname();
+  const nav = NAV.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
 
   return (
     <>
@@ -22,7 +25,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <Link href="/overview">EL Service · Office</Link>
         </div>
         <nav className="shell-nav">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <Link
               key={item.href}
               href={item.href}
