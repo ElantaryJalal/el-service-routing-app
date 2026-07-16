@@ -81,21 +81,45 @@ def backdate_feedback(client_uuid: str, stop_id: int) -> None:
     db.close()
 
 
-def run(day_seconds: float) -> None:
-    client = httpx.Client(base_url=API, timeout=30)
+def _sign_in(client: httpx.Client) -> None:
     token = client.post("/auth/login", json=WORKER).json()["access_token"]
     client.headers["Authorization"] = f"Bearer {token}"
+
+
+def _request(client: httpx.Client, method: str, url: str, **kwargs) -> httpx.Response:
+    """Request that survives a demo rig hiccup: transient network errors are
+    retried with backoff, an expired token (401 after a long wait at the
+    'assign it now' prompt) triggers a re-login."""
+    for attempt in range(10):  # ~5 min budget: rides out a docker-rig recovery
+        try:
+            resp = client.request(method, url, **kwargs)
+        except httpx.HTTPError:
+            time.sleep(5 * (attempt + 1))
+            continue
+        if resp.status_code == 401:
+            _sign_in(client)
+            continue
+        if resp.status_code >= 500:  # rig mid-recovery answers 5xx for a bit
+            time.sleep(5 * (attempt + 1))
+            continue
+        return resp
+    raise RuntimeError(f"{method} {url} kept failing — is the backend up?")
+
+
+def run(day_seconds: float) -> None:
+    client = httpx.Client(base_url=API, timeout=30)
+    _sign_in(client)
 
     print(f"Signed in as Demo Mitarbeiter. Waiting for the dispatcher to assign "
           f"tour {TOUR_ID} …  (assign it in the dashboard now)")
     while True:
-        mine = client.get("/me/tours").json()
+        mine = _request(client, "GET", "/me/tours").json()
         if any(t["id"] == TOUR_ID for t in mine):
             break
         time.sleep(3)
     print(f"Tour {TOUR_ID} assigned — the week begins.\n")
 
-    stops = client.get(f"/tours/{TOUR_ID}/stops").json()
+    stops = _request(client, "GET", f"/tours/{TOUR_ID}/stops").json()
     days: dict[str, list[dict]] = {}
     for s in stops:
         days.setdefault(s["assigned_day"] or "unscheduled", []).append(s)
@@ -110,7 +134,7 @@ def run(day_seconds: float) -> None:
         print(f"— Tag {day_no} ({day}) · {len(day_stops)} Stopps —")
         for s in day_stops:
             time.sleep(pause)
-            client.post(f"/stops/{s['id']}/complete", json={})
+            _request(client, "POST", f"/stops/{s['id']}/complete", json={})
             # ~80% within the 30-minute on-time tolerance.
             jitter = rng.choice([-8, -3, 2, 6, 11, 17, 24, 28, 41, 55])
             stamped = backdate(s["id"], jitter)
@@ -120,7 +144,7 @@ def run(day_seconds: float) -> None:
             print(f"   ✓ {where:48s}  erledigt {stamped} ({jitter:+d} min zur ETA)")
 
             if day_no == 3 and not feedback_done and s["store_id"] is not None:
-                client.post("/feedback", json={
+                _request(client, "POST", "/feedback", json={
                     "stop_id": s["id"],
                     "client_uuid": FEEDBACK_UUID,
                     "tags": ["parking_full"],
