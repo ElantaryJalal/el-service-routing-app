@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.store import Store
+from app.models.store_service_time import task_signature
 from app.models.task import Task
 
 _WS = re.compile(r"\s+")
@@ -218,9 +219,24 @@ def enrich_stop_from_store(stop, store: Store) -> None:
 
     # The learned median from completion history (P4) beats the hand-set
     # default: each week's plan is extracted fresh, so this is where past
-    # weeks' actual durations flow into the next tour's schedule.
+    # weeks' actual durations flow into the next tour's schedule. The row's
+    # own service profile is matched first — the same store takes a different
+    # time depending on which tasks the visit is for.
     if stop.service_minutes is None:
-        catalog_minutes = store.learned_service_minutes or store.default_service_minutes
+        signature = task_signature(t.task_type for t in stop.tasks)
+        profile_minutes = next(
+            (
+                row.learned_minutes
+                for row in store.service_times
+                if row.task_signature == signature and row.learned_minutes is not None
+            ),
+            None,
+        )
+        catalog_minutes = (
+            profile_minutes
+            or store.learned_service_minutes
+            or store.default_service_minutes
+        )
         if catalog_minutes is not None:
             stop.service_minutes = catalog_minutes
 

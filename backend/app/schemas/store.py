@@ -47,6 +47,17 @@ class StoreVisit(BaseModel):
     completed_at: datetime | None
 
 
+class ServiceProfileTimeRead(BaseModel):
+    """Learned duration for one service profile (task set) at a store —
+    the same market takes a different time depending on which tasks (which
+    team) the visit is for."""
+
+    task_signature: str
+    tasks_label: str | None
+    samples: int
+    learned_minutes: int | None
+
+
 class StoreServiceTimeRead(BaseModel):
     """Per-store outcome of a service-time recompute run."""
 
@@ -54,6 +65,7 @@ class StoreServiceTimeRead(BaseModel):
     name: str
     samples: int
     learned_service_minutes: int | None
+    by_service: list[ServiceProfileTimeRead] = []
 
 
 class StoreRead(BaseModel):
@@ -70,6 +82,8 @@ class StoreRead(BaseModel):
     learned_service_minutes: int | None
     service_time_samples: int
     service_times_updated_at: datetime | None
+    # Learned per service profile; the store-wide value above is the fallback.
+    service_times: list[ServiceProfileTimeRead]
     size: StoreSize | None
     in_mall: bool | None
     has_parking: bool | None

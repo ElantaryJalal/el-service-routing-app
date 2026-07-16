@@ -59,6 +59,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/push-tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Register Push Token
+         * @description Register this device's Expo push token for the caller. Idempotent; a
+         *     token already registered to another user moves to the caller (a shared
+         *     crew phone changing hands).
+         */
+        post: operations["register_push_token_me_push_tokens_post"];
+        /**
+         * Unregister Push Token
+         * @description Forget the device token (called on sign-out, before the session is
+         *     dropped). Only the caller's own registration is deleted.
+         */
+        delete: operations["unregister_push_token_me_push_tokens_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users": {
         parameters: {
             query?: never;
@@ -335,6 +362,7 @@ export interface paths {
          *
          *     Reassigning an in_progress tour keeps its stage; draft and done tours
          *     cannot be assigned (commit the plan first / the week is over).
+         *     The (new and displaced) workers are push-notified after the response.
          */
         post: operations["assign_tour_tours__tour_id__assign_post"];
         delete?: never;
@@ -355,7 +383,8 @@ export interface paths {
         /**
          * Unassign Tour
          * @description Take the tour back: clears the assignee; an untouched 'assigned' tour
-         *     returns to 'planned' (progress stages are kept).
+         *     returns to 'planned' (progress stages are kept). The displaced worker is
+         *     push-notified after the response.
          */
         post: operations["unassign_tour_tours__tour_id__unassign_post"];
         delete?: never;
@@ -1001,6 +1030,16 @@ export interface components {
             photo_path: string;
         };
         /**
+         * PushTokenRegister
+         * @description POST /me/push-tokens body: this device's Expo push token.
+         */
+        PushTokenRegister: {
+            /** Token */
+            token: string;
+            /** Platform */
+            platform?: ("ios" | "android") | null;
+        };
+        /**
          * Role
          * @description Access level of a user account.
          *
@@ -1009,6 +1048,22 @@ export interface components {
          * @enum {string}
          */
         Role: "worker" | "dispatcher" | "manager" | "admin";
+        /**
+         * ServiceProfileTimeRead
+         * @description Learned duration for one service profile (task set) at a store —
+         *     the same market takes a different time depending on which tasks (which
+         *     team) the visit is for.
+         */
+        ServiceProfileTimeRead: {
+            /** Task Signature */
+            task_signature: string;
+            /** Tasks Label */
+            tasks_label: string | null;
+            /** Samples */
+            samples: number;
+            /** Learned Minutes */
+            learned_minutes: number | null;
+        };
         /**
          * StopCompleteRequest
          * @description Body for POST /stops/{id}/complete. force re-stamps completed_at even
@@ -1192,6 +1247,8 @@ export interface components {
             service_time_samples: number;
             /** Service Times Updated At */
             service_times_updated_at: string | null;
+            /** Service Times */
+            service_times: components["schemas"]["ServiceProfileTimeRead"][];
             size: components["schemas"]["StoreSize"] | null;
             /** In Mall */
             in_mall: boolean | null;
@@ -1217,6 +1274,11 @@ export interface components {
             samples: number;
             /** Learned Service Minutes */
             learned_service_minutes: number | null;
+            /**
+             * By Service
+             * @default []
+             */
+            by_service: components["schemas"]["ServiceProfileTimeRead"][];
         };
         /**
          * StoreSize
@@ -1490,6 +1552,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TourRead"][];
+                };
+            };
+        };
+    };
+    register_push_token_me_push_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushTokenRegister"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unregister_push_token_me_push_tokens_delete: {
+        parameters: {
+            query: {
+                token: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

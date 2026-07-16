@@ -5,6 +5,7 @@ from app.models.hotel import Hotel
 from app.models.push_token import PushToken
 from app.models.stop import HoursSource, Stop
 from app.models.store import Store, StoreSize
+from app.models.store_service_time import StoreServiceTime
 from app.models.task import Task
 from app.models.tour import DateMode, Tour, TourStatus
 from app.models.user import Role, User
@@ -20,6 +21,7 @@ __all__ = [
     "Role",
     "Stop",
     "Store",
+    "StoreServiceTime",
     "StoreSize",
     "Task",
     "Tour",

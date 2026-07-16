@@ -5,7 +5,7 @@ from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import Boolean, DateTime, Integer, String
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
@@ -69,6 +69,12 @@ class Store(Base):
     attributes_updated_by: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # Learned durations per service profile (P4): the same store can take a
+    # different time depending on which tasks (which team) the visit is for.
+    service_times: Mapped[list["StoreServiceTime"]] = relationship(  # noqa: F821
+        back_populates="store", cascade="all, delete-orphan"
     )
 
     @property

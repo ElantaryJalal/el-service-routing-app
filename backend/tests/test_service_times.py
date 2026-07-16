@@ -5,7 +5,7 @@ unreachable. No network calls: OSRM is replaced by a fake matrix provider
 (fixed 600 s drive between any two points).
 """
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,9 +14,12 @@ from app.db import SessionLocal, engine
 from app.main import app
 from app.models.stop import Stop
 from app.models.store import Store
+from app.models.store_service_time import StoreServiceTime as StoreServiceTimeRow
+from app.models.store_service_time import task_signature
+from app.models.task import Task
 from app.models.tour import Tour
 from app.services import service_times
-from app.services.optimiser import _store_service_minutes
+from app.services.optimiser import _profile_service_minutes, _store_service_minutes
 from app.services.service_times import recompute_service_times
 from app.services.store_catalog import enrich_stop_from_store
 
@@ -42,7 +45,8 @@ def _fake_matrix(coords):
 
 @pytest.fixture
 def catalog_snapshot():
-    """Recompute rewrites every store; restore the real catalog afterwards."""
+    """Recompute rewrites every store (and rebuilds every per-profile row);
+    restore the real catalog afterwards."""
     db = SessionLocal()
     snapshot = {
         s.id: (
@@ -52,6 +56,10 @@ def catalog_snapshot():
         )
         for s in db.query(Store)
     }
+    profile_rows = [
+        (r.store_id, r.task_signature, r.tasks_label, r.learned_minutes, r.samples)
+        for r in db.query(StoreServiceTimeRow)
+    ]
     db.close()
 
     yield
@@ -64,6 +72,19 @@ def catalog_snapshot():
                 store.service_time_samples,
                 store.service_times_updated_at,
             ) = snapshot[store.id]
+    db.query(StoreServiceTimeRow).delete()
+    surviving = {s.id for s in db.query(Store)}
+    for store_id, signature, label, learned, samples in profile_rows:
+        if store_id in surviving:
+            db.add(
+                StoreServiceTimeRow(
+                    store_id=store_id,
+                    task_signature=signature,
+                    tasks_label=label,
+                    learned_minutes=learned,
+                    samples=samples,
+                )
+            )
     db.commit()
     db.close()
 
@@ -219,6 +240,151 @@ def test_enrichment_prefers_learned_over_default(seeded):
 
     db.rollback()
     db.close()
+
+
+@pytest.fixture
+def two_profiles(catalog_snapshot):
+    """One store, two service profiles across four days.
+
+    Each day: an anchor stop (no store) done 08:00 seq 1, then store C seq 2.
+    Days 1-2 are EKW visits (60, 70 min); days 3-4 Grundreinigung (170, 190).
+    Expected: profile 'ekw' learns 65, 'grundreinigung' learns 180, and the
+    store-wide median (the unmatched-profile fallback) is 120.
+    """
+    db = SessionLocal()
+    store = Store(name="Testmarkt Lernzeit C", postal_code="99103", city="Teststadt")
+    tour = Tour(
+        customer="Aldi Nord",
+        calendar_week=28,
+        date_from=date(2026, 7, 6),
+        date_to=date(2026, 7, 10),
+    )
+    db.add_all([store, tour])
+    db.flush()
+
+    visits = [  # (day, service task label, completion minutes after 08:00)
+        (date(2026, 7, 6), "EKW", 70),  # 4200 s gap - 600 drive = 60 min
+        (date(2026, 7, 7), "EKW", 80),  # 70 min
+        (date(2026, 7, 8), "Grundreinigung", 180),  # 170 min
+        (date(2026, 7, 9), "Grundreinigung", 200),  # 190 min
+    ]
+    for row, (day, label, minutes) in enumerate(visits):
+        anchor = Stop(
+            tour_id=tour.id,
+            row_index=row * 2,
+            assigned_day=day,
+            sequence=1,
+            geom="SRID=4326;POINT(12.20 51.30)",
+            completed_at=datetime(day.year, day.month, day.day, 8, 0, tzinfo=UTC),
+        )
+        visit = Stop(
+            tour_id=tour.id,
+            store_id=store.id,
+            row_index=row * 2 + 1,
+            assigned_day=day,
+            sequence=2,
+            geom="SRID=4326;POINT(12.25 51.30)",
+            completed_at=datetime(day.year, day.month, day.day, 8, 0, tzinfo=UTC)
+            + timedelta(minutes=minutes),
+        )
+        db.add_all([anchor, visit])
+        db.flush()
+        db.add(Task(stop_id=visit.id, task_type=label, raw_label=label))
+    db.commit()
+    ids = (store.id, tour.id)
+    db.close()
+
+    yield ids
+
+    db = SessionLocal()
+    db.query(Tour).filter(Tour.id == ids[1]).delete()  # cascades to the stops
+    db.query(Store).filter(Store.id == ids[0]).delete()  # cascades to profiles
+    db.commit()
+    db.close()
+
+
+def test_profiles_learn_separately_per_service(two_profiles):
+    store_id, _ = two_profiles
+
+    db = SessionLocal()
+    results = {
+        r.store_id: r for r in recompute_service_times(db, matrix_provider=_fake_matrix)
+    }
+
+    entry = results[store_id]
+    assert entry.samples == 4
+    assert entry.learned_service_minutes == 120  # median across both services
+
+    by_signature = {p.task_signature: p for p in entry.by_service}
+    assert by_signature["ekw"].learned_minutes == 65
+    assert by_signature["ekw"].samples == 2
+    assert by_signature["ekw"].tasks_label == "EKW"
+    assert by_signature["grundreinigung"].learned_minutes == 180
+
+    rows = db.query(StoreServiceTimeRow).filter_by(store_id=store_id).all()
+    assert {r.task_signature: r.learned_minutes for r in rows} == {
+        "ekw": 65,
+        "grundreinigung": 180,
+    }
+    db.close()
+
+
+def test_enrichment_matches_the_rows_service_profile(two_profiles):
+    store_id, _ = two_profiles
+    db = SessionLocal()
+    recompute_service_times(db, matrix_provider=_fake_matrix)
+    store = db.get(Store, store_id)
+    store.default_service_minutes = 45
+
+    # A row whose tasks match a learned profile gets that profile's time...
+    ekw_stop = Stop(tour_id=0, row_index=0)
+    ekw_stop.tasks.append(Task(task_type="EKW", raw_label="EKW"))
+    enrich_stop_from_store(ekw_stop, store)
+    assert ekw_stop.service_minutes == 65
+
+    # ...a never-seen profile falls back to the store-wide median...
+    other = Stop(tour_id=0, row_index=1)
+    other.tasks.append(Task(task_type="Sonderleistung", raw_label="Sonderleistung"))
+    enrich_stop_from_store(other, store)
+    assert other.service_minutes == 120
+
+    # ...and an explicit value on the row is never overridden.
+    manual = Stop(tour_id=0, row_index=2, service_minutes=30)
+    manual.tasks.append(Task(task_type="EKW", raw_label="EKW"))
+    enrich_stop_from_store(manual, store)
+    assert manual.service_minutes == 30
+
+    db.rollback()
+    db.close()
+
+
+def test_optimiser_profile_fallback(two_profiles):
+    store_id, _ = two_profiles
+    db = SessionLocal()
+    recompute_service_times(db, matrix_provider=_fake_matrix)
+
+    stops = [Stop(tour_id=0, row_index=0, store_id=store_id)]
+    lookup = _profile_service_minutes(db, stops)
+    assert lookup[(store_id, "ekw")] == 65
+    assert lookup[(store_id, "grundreinigung")] == 180
+    assert task_signature(["Grundreinigung"]) == "grundreinigung"
+
+    db.rollback()
+    db.close()
+
+
+def test_store_read_includes_service_profiles(two_profiles):
+    store_id, _ = two_profiles
+    db = SessionLocal()
+    recompute_service_times(db, matrix_provider=_fake_matrix)
+    db.close()
+
+    body = client.get(f"/stores/{store_id}").json()
+    profiles = {p["task_signature"]: p for p in body["service_times"]}
+    assert profiles["ekw"]["learned_minutes"] == 65
+    assert profiles["ekw"]["tasks_label"] == "EKW"
+    assert profiles["grundreinigung"]["learned_minutes"] == 180
+    assert body["learned_service_minutes"] == 120
 
 
 def test_optimiser_store_fallback_minutes(seeded):

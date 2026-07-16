@@ -13,6 +13,7 @@ from app.models.user import Role, User
 from app.models.visit_feedback import VisitFeedback
 from app.schemas.feedback import FeedbackRead
 from app.schemas.store import (
+    ServiceProfileTimeRead,
     StopSuggestion,
     StoreAttributesUpdate,
     StoreRead,
@@ -62,6 +63,15 @@ def _store_read(db: Session, store: Store) -> StoreRead:
         learned_service_minutes=store.learned_service_minutes,
         service_time_samples=store.service_time_samples,
         service_times_updated_at=store.service_times_updated_at,
+        service_times=[
+            ServiceProfileTimeRead(
+                task_signature=row.task_signature,
+                tasks_label=row.tasks_label,
+                samples=row.samples,
+                learned_minutes=row.learned_minutes,
+            )
+            for row in sorted(store.service_times, key=lambda r: r.task_signature)
+        ],
         size=store.size,
         in_mall=store.in_mall,
         has_parking=store.has_parking,
@@ -193,6 +203,15 @@ def recompute_store_service_times(
             name=entry.name,
             samples=entry.samples,
             learned_service_minutes=entry.learned_service_minutes,
+            by_service=[
+                ServiceProfileTimeRead(
+                    task_signature=profile.task_signature,
+                    tasks_label=profile.tasks_label,
+                    samples=profile.samples,
+                    learned_minutes=profile.learned_minutes,
+                )
+                for profile in entry.by_service
+            ],
         )
         for entry in recompute_service_times(db)
     ]

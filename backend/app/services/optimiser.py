@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.stop import Stop
 from app.models.store import Store
+from app.models.store_service_time import StoreServiceTime, task_signature
 from app.models.tour import DateMode, Tour
 from app.routing.osrm import OSRMClient
 from app.routing.vroom import VroomClient
@@ -170,13 +171,17 @@ def optimise_tour(
     coords_by_id = _coords_by_id(db, [s.id for s in stops])
 
     # A stop's own estimate is authoritative (it may be crew-edited); a stop
-    # without one falls back to its catalog store's learned-then-default
-    # minutes (P4), then to the global default.
+    # without one falls back to its catalog store's learned minutes for the
+    # stop's own task profile, then the store-wide learned-then-default
+    # minutes (P4), then the global default.
     store_minutes = _store_service_minutes(db, stops)
+    profile_minutes = _profile_service_minutes(db, stops)
+    stop_signature = {s.id: task_signature(t.task_type for t in s.tasks) for s in stops}
 
     def service_minutes_for(stop: Stop) -> int:
         return (
             stop.service_minutes
+            or profile_minutes.get((stop.store_id, stop_signature[stop.id]))
             or store_minutes.get(stop.store_id)
             or config.default_service_minutes
         )
@@ -326,6 +331,27 @@ def _store_service_minutes(db: Session, stops: Sequence[Stop]) -> dict[int, int]
         ).where(Store.id.in_(store_ids))
     ).all()
     return {store_id: minutes for store_id, minutes in rows if minutes is not None}
+
+
+def _profile_service_minutes(
+    db: Session, stops: Sequence[Stop]
+) -> dict[tuple[int, str], int]:
+    """Learned minutes per (store id, task signature): the same store can take
+    a different time depending on which service the visit is for (P4)."""
+    store_ids = {s.store_id for s in stops if s.store_id is not None}
+    if not store_ids:
+        return {}
+    rows = db.execute(
+        select(
+            StoreServiceTime.store_id,
+            StoreServiceTime.task_signature,
+            StoreServiceTime.learned_minutes,
+        ).where(
+            StoreServiceTime.store_id.in_(store_ids),
+            StoreServiceTime.learned_minutes.isnot(None),
+        )
+    ).all()
+    return {(store_id, signature): minutes for store_id, signature, minutes in rows}
 
 
 def _last_completed_coord(db: Session, tour_id: int) -> Coordinate | None:
