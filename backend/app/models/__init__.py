@@ -2,6 +2,7 @@
 
 from app.models.geocode_cache import GeocodeCache
 from app.models.hotel import Hotel
+from app.models.push_token import PushToken
 from app.models.stop import HoursSource, Stop
 from app.models.store import Store, StoreSize
 from app.models.task import Task
@@ -15,6 +16,7 @@ __all__ = [
     "GeocodeCache",
     "HoursSource",
     "Hotel",
+    "PushToken",
     "Role",
     "Stop",
     "Store",

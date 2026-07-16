@@ -1,7 +1,15 @@
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 from geoalchemy2.elements import WKTElement
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -24,6 +32,7 @@ from app.services.extraction_ollama import extract_tour_ollama
 from app.services.geocoding import geocode_address
 from app.services.opening_hours import fetch_opening_hours
 from app.services.optimiser import current_plan, optimise_tour
+from app.services.push import notify_user
 from app.services.store_catalog import enrich_stop_from_store, match_store
 
 router = APIRouter(prefix="/tours", tags=["tours"])
@@ -612,11 +621,13 @@ def assign_tour(
     tour_id: int,
     payload: TourAssignRequest,
     db: Annotated[Session, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ) -> Tour:
     """Hand the tour to a worker: sets assigned_user_id and status 'assigned'.
 
     Reassigning an in_progress tour keeps its stage; draft and done tours
     cannot be assigned (commit the plan first / the week is over).
+    The (new and displaced) workers are push-notified after the response.
     """
     tour = db.get(Tour, tour_id)
     if tour is None:
@@ -632,11 +643,31 @@ def assign_tour(
     if not user.is_active:
         raise HTTPException(status_code=400, detail="user is deactivated")
 
+    previous_user_id = tour.assigned_user_id
     tour.assigned_user_id = user.id
     if tour.status != TourStatus.in_progress:
         tour.status = TourStatus.assigned
     db.commit()
     db.refresh(tour)
+
+    if user.id != previous_user_id:
+        background_tasks.add_task(
+            notify_user,
+            user.id,
+            "New tour assigned",
+            f"{tour.customer} — KW {tour.calendar_week}, "
+            f"{tour.date_from:%d.%m.} – {tour.date_to:%d.%m.}",
+            {"tour_id": tour.id},
+        )
+        if previous_user_id is not None:
+            background_tasks.add_task(
+                notify_user,
+                previous_user_id,
+                "Tour reassigned",
+                f"{tour.customer} — KW {tour.calendar_week} was handed to "
+                f"{user.name}.",
+                {"tour_id": tour.id},
+            )
     return tour
 
 
@@ -644,16 +675,28 @@ def assign_tour(
 def unassign_tour(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
+    background_tasks: BackgroundTasks,
 ) -> Tour:
     """Take the tour back: clears the assignee; an untouched 'assigned' tour
-    returns to 'planned' (progress stages are kept)."""
+    returns to 'planned' (progress stages are kept). The displaced worker is
+    push-notified after the response."""
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
 
+    previous_user_id = tour.assigned_user_id
     tour.assigned_user_id = None
     if tour.status == TourStatus.assigned:
         tour.status = TourStatus.planned
     db.commit()
     db.refresh(tour)
+
+    if previous_user_id is not None:
+        background_tasks.add_task(
+            notify_user,
+            previous_user_id,
+            "Tour unassigned",
+            f"{tour.customer} — KW {tour.calendar_week} was taken off your list.",
+            {"tour_id": tour.id},
+        )
     return tour

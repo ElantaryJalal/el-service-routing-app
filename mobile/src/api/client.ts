@@ -201,6 +201,18 @@ export const api = {
     return request('/me/tours');
   },
 
+  /** Register this device's Expo push token (idempotent upsert). */
+  registerPushToken(token: string, platform: 'ios' | 'android'): Promise<void> {
+    return request('/me/push-tokens', jsonInit('POST', { token, platform }));
+  },
+
+  /** Forget the device token; call before sign-out while still authed. */
+  unregisterPushToken(token: string): Promise<void> {
+    return request(`/me/push-tokens?token=${encodeURIComponent(token)}`, {
+      method: 'DELETE',
+    });
+  },
+
   /**
    * POST /tours/extract (multipart). Uploads the photographed plan and returns
    * the parsed draft (tour id + stops with per-field confidence). Provisional.

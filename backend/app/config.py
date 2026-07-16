@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     # Uploaded files (visit-feedback photos) live here, served read-only under
     # /media. Relative to the backend working directory; gitignored.
     media_dir: str = "./media"
+    # Expo push service base URL (no key needed). Overridden in tests / when
+    # relaying through a proxy.
+    expo_push_url: str = "https://exp.host"
 
     # --- Auth ---
     # HS256 signing key for JWT access tokens. MUST be overridden in production.
