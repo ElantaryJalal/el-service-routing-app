@@ -111,8 +111,8 @@ function StoresPage() {
                 <th>Size</th>
                 <th>Mall</th>
                 <th>Parking</th>
-                <th>Service time</th>
                 <th>Time spent</th>
+                <th className="num">Services</th>
                 <th>Facts</th>
               </tr>
             </thead>
@@ -148,16 +148,12 @@ function StoresPage() {
                     <td>{tri(s.in_mall)}</td>
                     <td>{tri(s.has_parking)}</td>
                     <td className="num">
-                      {s.learned_service_minutes != null
-                        ? `${s.learned_service_minutes} min (learned ×${s.service_time_samples})`
-                        : s.default_service_minutes != null
-                          ? `${s.default_service_minutes} min`
-                          : "—"}
+                      {s.services_recorded > 0
+                        ? fmtTotal(s.total_service_minutes)
+                        : "—"}
                     </td>
                     <td className="num">
-                      {s.services_recorded > 0
-                        ? `${fmtTotal(s.total_service_minutes)} (${s.services_recorded} service${s.services_recorded === 1 ? "" : "s"})`
-                        : "—"}
+                      {s.services_recorded > 0 ? s.services_recorded : "—"}
                     </td>
                     <td>
                       {s.attributes_complete ? (
