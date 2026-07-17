@@ -41,9 +41,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.models.service_record import ServiceRecord, learned_minutes, task_signature
 from app.models.stop import Stop
 from app.models.store import Store
-from app.models.store_service_time import StoreServiceTime, task_signature
 from app.models.tour import DateMode, Tour
 from app.routing.osrm import OSRMClient
 from app.routing.vroom import VroomClient
@@ -336,22 +336,27 @@ def _store_service_minutes(db: Session, stops: Sequence[Stop]) -> dict[int, int]
 def _profile_service_minutes(
     db: Session, stops: Sequence[Stop]
 ) -> dict[tuple[int, str], int]:
-    """Learned minutes per (store id, task signature): the same store can take
-    a different time depending on which service the visit is for (P4)."""
+    """Learned minutes per (store id, task signature), aggregated from the
+    service ledger: the same store can take a different time depending on
+    which service the visit is for (P4)."""
     store_ids = {s.store_id for s in stops if s.store_id is not None}
     if not store_ids:
         return {}
     rows = db.execute(
         select(
-            StoreServiceTime.store_id,
-            StoreServiceTime.task_signature,
-            StoreServiceTime.learned_minutes,
-        ).where(
-            StoreServiceTime.store_id.in_(store_ids),
-            StoreServiceTime.learned_minutes.isnot(None),
-        )
+            ServiceRecord.store_id,
+            ServiceRecord.task_signature,
+            ServiceRecord.duration_minutes,
+        ).where(ServiceRecord.store_id.in_(store_ids))
     ).all()
-    return {(store_id, signature): minutes for store_id, signature, minutes in rows}
+    durations: dict[tuple[int, str], list[int]] = {}
+    for store_id, signature, minutes in rows:
+        durations.setdefault((store_id, signature), []).append(minutes)
+    return {
+        key: estimate
+        for key, values in durations.items()
+        if (estimate := learned_minutes(values)) is not None
+    }
 
 
 def _last_completed_coord(db: Session, tour_id: int) -> Coordinate | None:

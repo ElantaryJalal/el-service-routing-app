@@ -125,6 +125,9 @@ export interface Store {
   service_time_samples: number;
   /** Learned per service profile; the store-wide value is the fallback. */
   service_times: ServiceProfileTime[];
+  /** Total recorded time spent at this store, across the service ledger. */
+  total_service_minutes: number;
+  services_recorded: number;
   size: "small" | "medium" | "large" | null;
   in_mall: boolean | null;
   has_parking: boolean | null;
@@ -159,6 +162,9 @@ export interface StoreVisit {
   service_minutes: number | null;
   eta: string | null;
   completed_at: string | null;
+  /** From the service ledger (null until a recompute derived this visit). */
+  tasks: string | null;
+  duration_minutes: number | null;
 }
 
 export interface Feedback {

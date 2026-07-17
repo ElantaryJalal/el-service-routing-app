@@ -13,6 +13,13 @@ import {
   type StoreVisit,
 } from "@/lib/api";
 
+/** "3 h 25 min" / "45 min" — total recorded time across the service ledger. */
+function fmtTotal(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h} h${m > 0 ? ` ${m} min` : ""}` : `${m} min`;
+}
+
 function StoreDetailPage() {
   const params = useParams<{ id: string }>();
   const storeId = Number(params.id);
@@ -93,7 +100,14 @@ function StoreDetailPage() {
       <div className="split">
         <div>
           <div className="card">
-            <h2>Visit history</h2>
+            <h2>Services &amp; visits</h2>
+            {store.services_recorded > 0 && (
+              <p className="muted small" style={{ marginTop: 0 }}>
+                <strong>{fmtTotal(store.total_service_minutes)}</strong> spent
+                here in total, across {store.services_recorded} recorded
+                service{store.services_recorded === 1 ? "" : "s"}.
+              </p>
+            )}
             <div className="table-wrap">
               <table className="data">
                 <thead>
@@ -101,7 +115,9 @@ function StoreDetailPage() {
                     <th>Date</th>
                     <th>Week</th>
                     <th>Tour</th>
-                    <th>Employee</th>
+                    <th>Team</th>
+                    <th>Service</th>
+                    <th className="num">Duration</th>
                     <th>ETA</th>
                     <th>Completed</th>
                   </tr>
@@ -109,7 +125,7 @@ function StoreDetailPage() {
                 <tbody>
                   {visits.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="muted">
+                      <td colSpan={8} className="muted">
                         No visits recorded yet.
                       </td>
                     </tr>
@@ -122,7 +138,22 @@ function StoreDetailPage() {
                           <Link href={`/tours/${v.tour_id}`}>#{v.tour_id}</Link>
                         </td>
                         <td>{v.employee ?? <span className="muted">—</span>}</td>
-                        <td className="num">{v.eta ?? "—"}</td>
+                        <td>{v.tasks ?? <span className="muted">—</span>}</td>
+                        <td className="num">
+                          {v.duration_minutes !== null ? (
+                            `${v.duration_minutes} min`
+                          ) : (
+                            <span className="muted">—</span>
+                          )}
+                        </td>
+                        <td className="num">
+                          {v.eta
+                            ? new Date(v.eta).toLocaleTimeString("de-DE", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : "—"}
+                        </td>
                         <td>
                           {v.completed_at ? (
                             <span className="badge badge-done">

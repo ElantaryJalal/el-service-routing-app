@@ -35,7 +35,9 @@ class StoreAttributesUpdate(BaseModel):
 class StoreVisit(BaseModel):
     """One (planned or completed) stop at this store, for the office view's
     visit-history table. eta is the optimiser's prediction, completed_at the
-    crew's actual — the office watches the delta between them."""
+    crew's actual — the office watches the delta between them. Completed
+    visits with a ledger entry also carry the service actually performed:
+    its tasks, the responsible team, and the derived duration."""
 
     stop_id: int
     tour_id: int
@@ -45,6 +47,9 @@ class StoreVisit(BaseModel):
     service_minutes: int | None
     eta: datetime | None
     completed_at: datetime | None
+    # From the service ledger (null until a recompute derived this visit).
+    tasks: str | None = None
+    duration_minutes: int | None = None
 
 
 class ServiceProfileTimeRead(BaseModel):
@@ -84,6 +89,9 @@ class StoreRead(BaseModel):
     service_times_updated_at: datetime | None
     # Learned per service profile; the store-wide value above is the fallback.
     service_times: list[ServiceProfileTimeRead]
+    # Total recorded time spent at this store, across the whole ledger.
+    total_service_minutes: int
+    services_recorded: int
     size: StoreSize | None
     in_mall: bool | None
     has_parking: bool | None

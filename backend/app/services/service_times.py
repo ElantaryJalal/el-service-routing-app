@@ -1,4 +1,4 @@
-"""Learn per-store service durations from completion history (P4).
+"""Derive the service ledger from completion history and learn from it (P4).
 
 The crew taps "done" as they finish each stop, so ``completed_at`` marks the
 *end* of service. Arrival is never recorded — but when two stops were completed
@@ -17,37 +17,44 @@ in between means an unknown detour) and the resulting duration is plausible:
 - Very long durations are discarded: the pair straddled a break, an overnight,
   or a forced re-completion days later.
 
-A store's learned value is the **median** of its surviving observations —
-robust to the occasional forgotten tap — and is only set once MIN_SAMPLES
-observations exist. Everything is recomputed from scratch on each run
-(history is small: one crew, ~26 stores, weekly tours), triggered via
-POST /stores/service-times/recompute.
+Each surviving observation is persisted as a ``service_records`` row — the
+ledger of services actually performed, linking store, tour, responsible team,
+tasks, and duration. Everything learned is an aggregate of that ledger:
 
-One store is not one duration: the same market can host different services
-(often different teams) with very different lengths, so observations are
-additionally grouped by the visit's **task signature** and each profile gets
-its own median (``store_service_times`` rows). The store-wide median stays on
-the store row as the fallback for task profiles never seen before.
+- the store-wide estimate (median of all the store's records, cached on the
+  store row) — the fallback for task profiles never seen before;
+- per-profile estimates (median per task signature), because one store is not
+  one duration: different task profiles — often different teams — take very
+  different time at the same market.
+
+Everything is recomputed from scratch on each run (history is small: one
+crew, ~26 stores, weekly tours), triggered via
+POST /stores/service-times/recompute.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from statistics import median
+from datetime import date
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.models.service_record import (
+    MIN_SAMPLES,
+    ServiceRecord,
+    learned_minutes,
+    task_signature,
+)
 from app.models.stop import Stop
 from app.models.store import Store
-from app.models.store_service_time import StoreServiceTime as StoreServiceTimeRow
-from app.models.store_service_time import task_signature
 from app.models.task import Task
+from app.models.tour import Tour
+from app.models.user import User
 from app.services.optimiser import MatrixProvider, _osrm_matrix
 
 MIN_SERVICE_MINUTES = 10
 MAX_SERVICE_MINUTES = 600  # matches the manual estimate cap on stops
-MIN_SAMPLES = 2
 
 
 @dataclass
@@ -73,9 +80,13 @@ class StoreServiceTime:
 
 @dataclass
 class Observation:
-    """One derived service duration, tagged with the visit's task profile."""
+    """One derived service, ready to be written to the ledger."""
 
-    seconds: int
+    stop_id: int
+    tour_id: int
+    store_id: int
+    serviced_on: date | None
+    minutes: int
     task_signature: str
     tasks_label: str | None
 
@@ -129,9 +140,8 @@ def _stop_profiles(db: Session, stop_ids: list[int]) -> dict[int, tuple[str, str
 
 def collect_observations(
     db: Session, matrix_provider: MatrixProvider | None = None
-) -> dict[int, list[Observation]]:
-    """Observed service durations, keyed by store id and tagged with the
-    visit's task profile.
+) -> list[Observation]:
+    """Every derivable service, tagged with the visit's task profile.
 
     One OSRM matrix call per (tour, day) group; the observation belongs to the
     *later* stop of each pair (it's the one whose service the gap contains).
@@ -139,7 +149,7 @@ def collect_observations(
     matrix_provider = matrix_provider or _osrm_matrix
     groups = _completed_day_groups(db)
     profiles = _stop_profiles(db, [row.id for group in groups for row in group])
-    observations: dict[int, list[Observation]] = {}
+    observations: list[Observation] = []
 
     for group in groups:
         matrix = matrix_provider([(row.lon, row.lat) for row in group])
@@ -152,76 +162,109 @@ def collect_observations(
             service = gap - matrix[index][index + 1]
             if MIN_SERVICE_MINUTES * 60 <= service <= MAX_SERVICE_MINUTES * 60:
                 signature, label = profiles.get(cur.id, ("", None))
-                observations.setdefault(cur.store_id, []).append(
-                    Observation(int(service), signature, label)
+                observations.append(
+                    Observation(
+                        stop_id=cur.id,
+                        tour_id=cur.tour_id,
+                        store_id=cur.store_id,
+                        serviced_on=cur.assigned_day,
+                        minutes=int(round(service / 60)),
+                        task_signature=signature,
+                        tasks_label=label,
+                    )
                 )
 
     return observations
 
 
+def _tour_teams(db: Session, tour_ids: set[int]) -> dict[int, tuple[int | None, str]]:
+    """(assigned user id, display name) per tour: the responsible team."""
+    if not tour_ids:
+        return {}
+    rows = db.execute(
+        select(Tour.id, Tour.assigned_user_id, Tour.employee, Tour.team_lead, User.name)
+        .outerjoin(User, Tour.assigned_user_id == User.id)
+        .where(Tour.id.in_(tour_ids))
+    ).all()
+    return {
+        tour_id: (user_id, user_name or employee or team_lead)
+        for tour_id, user_id, employee, team_lead, user_name in rows
+    }
+
+
 def recompute_service_times(
     db: Session, matrix_provider: MatrixProvider | None = None
 ) -> list[StoreServiceTime]:
-    """Re-learn every store's service times from history and persist them.
+    """Rebuild the service ledger from history and re-learn every estimate.
 
     Stores without enough usable history get learned_service_minutes = NULL
     (their sample count is still recorded), so a store whose observations were
-    later invalidated also un-learns. Per-profile rows are rebuilt from
-    scratch, so vanished profiles disappear with their history.
+    later invalidated also un-learns; vanished ledger rows disappear with
+    their history.
     """
     observations = collect_observations(db, matrix_provider)
-    db.query(StoreServiceTimeRow).delete()
+    teams = _tour_teams(db, {o.tour_id for o in observations})
+    db.query(ServiceRecord).delete()
+
+    by_store: dict[int, list[Observation]] = {}
+    for obs in observations:
+        by_store.setdefault(obs.store_id, []).append(obs)
+        user_id, team = teams.get(obs.tour_id, (None, None))
+        db.add(
+            ServiceRecord(
+                stop_id=obs.stop_id,
+                store_id=obs.store_id,
+                tour_id=obs.tour_id,
+                user_id=user_id,
+                team=team,
+                serviced_on=obs.serviced_on,
+                task_signature=obs.task_signature,
+                tasks_label=obs.tasks_label,
+                duration_minutes=obs.minutes,
+            )
+        )
 
     results: list[StoreServiceTime] = []
     for store in db.scalars(select(Store).order_by(Store.name)):
-        samples = observations.get(store.id, [])
-        learned = (
-            int(round(median(o.seconds for o in samples) / 60))
-            if len(samples) >= MIN_SAMPLES
-            else None
-        )
-        store.learned_service_minutes = learned
+        samples = by_store.get(store.id, [])
+        store.learned_service_minutes = learned_minutes([o.minutes for o in samples])
         store.service_time_samples = len(samples)
         store.service_times_updated_at = func.now()
 
         by_signature: dict[str, list[Observation]] = {}
         for obs in samples:
             by_signature.setdefault(obs.task_signature, []).append(obs)
-        by_service: list[ServiceProfileTime] = []
-        for signature, group in sorted(by_signature.items()):
-            profile_learned = (
-                int(round(median(o.seconds for o in group) / 60))
-                if len(group) >= MIN_SAMPLES
-                else None
-            )
-            label = next((o.tasks_label for o in group if o.tasks_label), None)
-            db.add(
-                StoreServiceTimeRow(
-                    store_id=store.id,
-                    task_signature=signature,
-                    tasks_label=label,
-                    learned_minutes=profile_learned,
-                    samples=len(group),
-                )
-            )
-            by_service.append(
-                ServiceProfileTime(
-                    task_signature=signature,
-                    tasks_label=label,
-                    samples=len(group),
-                    learned_minutes=profile_learned,
-                )
-            )
-
         results.append(
             StoreServiceTime(
                 store_id=store.id,
                 name=store.name,
                 samples=len(samples),
-                learned_service_minutes=learned,
-                by_service=by_service,
+                learned_service_minutes=store.learned_service_minutes,
+                by_service=[
+                    ServiceProfileTime(
+                        task_signature=signature,
+                        tasks_label=next(
+                            (o.tasks_label for o in group if o.tasks_label), None
+                        ),
+                        samples=len(group),
+                        learned_minutes=learned_minutes([o.minutes for o in group]),
+                    )
+                    for signature, group in sorted(by_signature.items())
+                ],
             )
         )
 
     db.commit()
     return results
+
+
+__all__ = [
+    "MIN_SAMPLES",
+    "MIN_SERVICE_MINUTES",
+    "MAX_SERVICE_MINUTES",
+    "Observation",
+    "ServiceProfileTime",
+    "StoreServiceTime",
+    "collect_observations",
+    "recompute_service_times",
+]

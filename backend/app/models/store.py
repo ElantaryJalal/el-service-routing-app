@@ -71,9 +71,10 @@ class Store(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    # Learned durations per service profile (P4): the same store can take a
-    # different time depending on which tasks (which team) the visit is for.
-    service_times: Mapped[list["StoreServiceTime"]] = relationship(  # noqa: F821
+    # The store's service ledger (P4): every performed service with its team,
+    # tasks, and derived duration. All time aggregates the office sees —
+    # totals, per-profile medians, the learned estimate — come from these.
+    service_records: Mapped[list["ServiceRecord"]] = relationship(  # noqa: F821
         back_populates="store", cascade="all, delete-orphan"
     )
 

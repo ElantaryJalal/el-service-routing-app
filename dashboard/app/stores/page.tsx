@@ -13,6 +13,13 @@ function tri(v: boolean | null): string {
   return v === null ? "?" : v ? "yes" : "no";
 }
 
+/** "3 h 25 min" / "45 min" — total recorded time across the service ledger. */
+function fmtTotal(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h > 0 ? `${h} h${m > 0 ? ` ${m} min` : ""}` : `${m} min`;
+}
+
 function StoresPage() {
   const router = useRouter();
   const { user } = useAuth();
@@ -105,19 +112,20 @@ function StoresPage() {
                 <th>Mall</th>
                 <th>Parking</th>
                 <th>Service time</th>
+                <th>Time spent</th>
                 <th>Facts</th>
               </tr>
             </thead>
             <tbody>
               {stores === null ? (
                 <tr>
-                  <td colSpan={7} className="muted">
+                  <td colSpan={8} className="muted">
                     Loading…
                   </td>
                 </tr>
               ) : stores.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="muted">
+                  <td colSpan={8} className="muted">
                     No stores in this view.
                   </td>
                 </tr>
@@ -145,6 +153,11 @@ function StoresPage() {
                         : s.default_service_minutes != null
                           ? `${s.default_service_minutes} min`
                           : "—"}
+                    </td>
+                    <td className="num">
+                      {s.services_recorded > 0
+                        ? `${fmtTotal(s.total_service_minutes)} (${s.services_recorded} service${s.services_recorded === 1 ? "" : "s"})`
+                        : "—"}
                     </td>
                     <td>
                       {s.attributes_complete ? (

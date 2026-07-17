@@ -1249,6 +1249,10 @@ export interface components {
             service_times_updated_at: string | null;
             /** Service Times */
             service_times: components["schemas"]["ServiceProfileTimeRead"][];
+            /** Total Service Minutes */
+            total_service_minutes: number;
+            /** Services Recorded */
+            services_recorded: number;
             size: components["schemas"]["StoreSize"] | null;
             /** In Mall */
             in_mall: boolean | null;
@@ -1289,7 +1293,9 @@ export interface components {
          * StoreVisit
          * @description One (planned or completed) stop at this store, for the office view's
          *     visit-history table. eta is the optimiser's prediction, completed_at the
-         *     crew's actual — the office watches the delta between them.
+         *     crew's actual — the office watches the delta between them. Completed
+         *     visits with a ledger entry also carry the service actually performed:
+         *     its tasks, the responsible team, and the derived duration.
          */
         StoreVisit: {
             /** Stop Id */
@@ -1308,6 +1314,10 @@ export interface components {
             eta: string | null;
             /** Completed At */
             completed_at: string | null;
+            /** Tasks */
+            tasks?: string | null;
+            /** Duration Minutes */
+            duration_minutes?: number | null;
         };
         /** TokenResponse */
         TokenResponse: {

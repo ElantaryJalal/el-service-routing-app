@@ -12,10 +12,9 @@ from fastapi.testclient import TestClient
 
 from app.db import SessionLocal, engine
 from app.main import app
+from app.models.service_record import ServiceRecord, task_signature
 from app.models.stop import Stop
 from app.models.store import Store
-from app.models.store_service_time import StoreServiceTime as StoreServiceTimeRow
-from app.models.store_service_time import task_signature
 from app.models.task import Task
 from app.models.tour import Tour
 from app.services import service_times
@@ -43,10 +42,23 @@ def _fake_matrix(coords):
     return [[0 if i == j else 600 for j in range(n)] for i in range(n)]
 
 
+_LEDGER_FIELDS = (
+    "stop_id",
+    "store_id",
+    "tour_id",
+    "user_id",
+    "team",
+    "serviced_on",
+    "task_signature",
+    "tasks_label",
+    "duration_minutes",
+)
+
+
 @pytest.fixture
 def catalog_snapshot():
-    """Recompute rewrites every store (and rebuilds every per-profile row);
-    restore the real catalog afterwards."""
+    """Recompute rewrites every store (and rebuilds the whole service
+    ledger); restore the real catalog afterwards."""
     db = SessionLocal()
     snapshot = {
         s.id: (
@@ -56,9 +68,8 @@ def catalog_snapshot():
         )
         for s in db.query(Store)
     }
-    profile_rows = [
-        (r.store_id, r.task_signature, r.tasks_label, r.learned_minutes, r.samples)
-        for r in db.query(StoreServiceTimeRow)
+    ledger = [
+        {f: getattr(r, f) for f in _LEDGER_FIELDS} for r in db.query(ServiceRecord)
     ]
     db.close()
 
@@ -72,19 +83,11 @@ def catalog_snapshot():
                 store.service_time_samples,
                 store.service_times_updated_at,
             ) = snapshot[store.id]
-    db.query(StoreServiceTimeRow).delete()
-    surviving = {s.id for s in db.query(Store)}
-    for store_id, signature, label, learned, samples in profile_rows:
-        if store_id in surviving:
-            db.add(
-                StoreServiceTimeRow(
-                    store_id=store_id,
-                    task_signature=signature,
-                    tasks_label=label,
-                    learned_minutes=learned,
-                    samples=samples,
-                )
-            )
+    db.query(ServiceRecord).delete()
+    surviving_stops = {row[0] for row in db.query(Stop.id)}
+    for record in ledger:
+        if record["stop_id"] in surviving_stops:
+            db.add(ServiceRecord(**record))
     db.commit()
     db.close()
 
@@ -258,6 +261,7 @@ def two_profiles(catalog_snapshot):
         calendar_week=28,
         date_from=date(2026, 7, 6),
         date_to=date(2026, 7, 10),
+        employee="Team Nord",
     )
     db.add_all([store, tour])
     db.flush()
@@ -321,11 +325,13 @@ def test_profiles_learn_separately_per_service(two_profiles):
     assert by_signature["ekw"].tasks_label == "EKW"
     assert by_signature["grundreinigung"].learned_minutes == 180
 
-    rows = db.query(StoreServiceTimeRow).filter_by(store_id=store_id).all()
-    assert {r.task_signature: r.learned_minutes for r in rows} == {
-        "ekw": 65,
-        "grundreinigung": 180,
-    }
+    # The ledger holds one row per performed service, with the responsible
+    # team and the derived duration — the estimates are its aggregates.
+    records = db.query(ServiceRecord).filter_by(store_id=store_id).all()
+    assert sorted(r.duration_minutes for r in records) == [60, 70, 170, 190]
+    assert {r.team for r in records} == {"Team Nord"}
+    assert {r.task_signature for r in records} == {"ekw", "grundreinigung"}
+    assert all(r.serviced_on is not None and r.tour_id is not None for r in records)
     db.close()
 
 
@@ -385,6 +391,21 @@ def test_store_read_includes_service_profiles(two_profiles):
     assert profiles["ekw"]["tasks_label"] == "EKW"
     assert profiles["grundreinigung"]["learned_minutes"] == 180
     assert body["learned_service_minutes"] == 120
+    assert body["total_service_minutes"] == 60 + 70 + 170 + 190
+    assert body["services_recorded"] == 4
+
+
+def test_store_visits_carry_the_performed_service(two_profiles):
+    store_id, _ = two_profiles
+    db = SessionLocal()
+    recompute_service_times(db, matrix_provider=_fake_matrix)
+    db.close()
+
+    visits = client.get(f"/stores/{store_id}/visits").json()
+    assert len(visits) == 4
+    assert sorted(v["duration_minutes"] for v in visits) == [60, 70, 170, 190]
+    assert {v["employee"] for v in visits} == {"Team Nord"}
+    assert {v["tasks"] for v in visits} == {"EKW", "Grundreinigung"}
 
 
 def test_optimiser_store_fallback_minutes(seeded):

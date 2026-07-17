@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, require_role, worker_services_store
 from app.db import get_db
+from app.models.service_record import ServiceRecord, learned_minutes
 from app.models.stop import Stop
 from app.models.store import Store
 from app.models.tour import Tour
@@ -42,6 +43,23 @@ def _ensure_store_visible(db: Session, user: User, store_id: int) -> None:
 _ATTRIBUTE_FIELDS = {"size", "in_mall", "has_parking"}
 
 
+def _service_profiles(store: Store) -> list[ServiceProfileTimeRead]:
+    """Aggregate the store's ledger per task profile: the same store can take
+    a different time depending on which service the visit is for."""
+    by_signature: dict[str, list] = {}
+    for record in store.service_records:
+        by_signature.setdefault(record.task_signature, []).append(record)
+    return [
+        ServiceProfileTimeRead(
+            task_signature=signature,
+            tasks_label=next((r.tasks_label for r in group if r.tasks_label), None),
+            samples=len(group),
+            learned_minutes=learned_minutes([r.duration_minutes for r in group]),
+        )
+        for signature, group in sorted(by_signature.items())
+    ]
+
+
 def _store_read(db: Session, store: Store) -> StoreRead:
     lon, lat = (None, None)
     if store.geom is not None:
@@ -63,15 +81,9 @@ def _store_read(db: Session, store: Store) -> StoreRead:
         learned_service_minutes=store.learned_service_minutes,
         service_time_samples=store.service_time_samples,
         service_times_updated_at=store.service_times_updated_at,
-        service_times=[
-            ServiceProfileTimeRead(
-                task_signature=row.task_signature,
-                tasks_label=row.tasks_label,
-                samples=row.samples,
-                learned_minutes=row.learned_minutes,
-            )
-            for row in sorted(store.service_times, key=lambda r: r.task_signature)
-        ],
+        service_times=_service_profiles(store),
+        total_service_minutes=sum(r.duration_minutes for r in store.service_records),
+        services_recorded=len(store.service_records),
         size=store.size,
         in_mall=store.in_mall,
         has_parking=store.has_parking,
@@ -243,8 +255,9 @@ def store_visits(
         raise HTTPException(status_code=404, detail="store not found")
 
     rows = db.execute(
-        select(Stop, Tour)
+        select(Stop, Tour, ServiceRecord)
         .join(Tour, Stop.tour_id == Tour.id)
+        .outerjoin(ServiceRecord, ServiceRecord.stop_id == Stop.id)
         .where(Stop.store_id == store_id)
         .order_by(
             func.coalesce(Stop.assigned_day, Stop.date).desc().nulls_last(),
@@ -258,12 +271,16 @@ def store_visits(
             tour_id=tour.id,
             calendar_week=tour.calendar_week,
             date=stop.assigned_day or stop.date,
-            employee=tour.employee or tour.team_lead,
+            employee=(record.team if record else None)
+            or tour.employee
+            or tour.team_lead,
             service_minutes=stop.service_minutes,
             eta=stop.eta,
             completed_at=stop.completed_at,
+            tasks=record.tasks_label if record else None,
+            duration_minutes=record.duration_minutes if record else None,
         )
-        for stop, tour in rows
+        for stop, tour, record in rows
     ]
 
 
