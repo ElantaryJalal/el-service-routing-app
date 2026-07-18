@@ -55,8 +55,25 @@ export interface CommitResult {
   status: string;
   stops_total: number;
   stops_enriched: number;
+  stops_matched: number;
+  new_stores: { stop_id: number; store_id: number; name: string }[];
+  review_items: {
+    stop_id: number;
+    customer: string | null;
+    reason: string;
+    candidates: { store_id: number; name: string; score: number; rule: string }[];
+  }[];
+  address_mismatches: {
+    stop_id: number;
+    store_id: number;
+    claimed: string;
+    verified: string;
+  }[];
   duplicates: number[][];
 }
+
+/** How much the address/pin has been checked, weakest to strongest. */
+export type Provenance = "printed" | "geocoded" | "verified" | "field_confirmed";
 
 export interface StopDetail {
   id: number;
@@ -71,9 +88,20 @@ export interface StopDetail {
   sequence: number | null;
   eta: string | null;
   unassigned_reason: string | null;
+  /** Effective address: the linked store's verified data when there is one. */
   street: string | null;
   postal_code: string | null;
   city: string | null;
+  /** What the printed plan said — the audit trail, never used for routing. */
+  claimed_street: string | null;
+  claimed_postal_code: string | null;
+  claimed_city: string | null;
+  /** false = the plan disagrees with the store (a review row); null = unchecked. */
+  address_matches_store: boolean | null;
+  address_review_resolved_at: string | null;
+  address_review_resolved_by: string | null;
+  /** 'printed'/'geocoded' marks a new-store candidate awaiting verification. */
+  store_address_provenance: Provenance | null;
   tasks: string | null;
   remarks: string | null;
   lat: number | null;
@@ -119,6 +147,13 @@ export interface Store {
   city: string | null;
   lat: number | null;
   lng: number | null;
+  address_provenance: Provenance;
+  geom_provenance: Exclude<Provenance, "printed"> | null;
+  verified_at: string | null;
+  verified_by: string | null;
+  opening_time: string | null;
+  closing_time: string | null;
+  hours_source: "osm" | "manual" | "default" | null;
   default_tasks: string[] | null;
   default_service_minutes: number | null;
   learned_service_minutes: number | null;
@@ -324,6 +359,11 @@ export const api = {
     }),
   deleteStop: (stopId: number) =>
     request<void>(`/stops/${stopId}`, { method: "DELETE" }),
+  resolveAddress: (stopId: number, action: "keep_store" | "use_claim") =>
+    request<unknown>(`/stops/${stopId}/resolve-address`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    }),
   commit: (tourId: number) =>
     request<CommitResult>(`/tours/${tourId}/commit`, { method: "POST" }),
   optimise: (tourId: number) =>

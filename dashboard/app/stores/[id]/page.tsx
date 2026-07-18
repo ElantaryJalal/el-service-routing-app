@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import ProvenanceBadge from "@/components/ProvenanceBadge";
 import { Protected, useAuth } from "@/lib/auth";
 import {
   api,
@@ -86,7 +87,9 @@ function StoreDetailPage() {
             <span className="muted">/ #{store.id}</span>
           </div>
           <h1>{store.name}</h1>
-          <div className="muted small">{address || "no address"}</div>
+          <div className="muted small">
+            {address || "no address"} <ProvenanceBadge store={store} />
+          </div>
         </div>
         {store.attributes_complete ? (
           <span className="badge badge-done">facts complete</span>

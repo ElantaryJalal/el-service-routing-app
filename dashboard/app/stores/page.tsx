@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import ProvenanceBadge from "@/components/ProvenanceBadge";
 import { Protected, useAuth } from "@/lib/auth";
 import { api, type Store } from "@/lib/api";
 
@@ -142,7 +143,8 @@ function StoresPage() {
                     <td className="muted">
                       {[s.street, [s.postal_code, s.city].filter(Boolean).join(" ")]
                         .filter(Boolean)
-                        .join(", ")}
+                        .join(", ")}{" "}
+                      <ProvenanceBadge store={s} />
                     </td>
                     <td>{s.size ?? <span className="muted">?</span>}</td>
                     <td>{tri(s.in_mall)}</td>

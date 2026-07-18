@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ReviewFindings from "@/components/ReviewFindings";
 import TourMap from "@/components/TourMap";
 import {
   api,
@@ -137,6 +138,12 @@ export default function PlanBoard({
     <>
       {error && <div className="banner banner-error">{error}</div>}
       {notice && <div className="banner banner-ok">{notice}</div>}
+
+      <ReviewFindings
+        stops={stops}
+        readOnly={readOnly}
+        onResolved={() => void reload().catch(() => undefined)}
+      />
 
       {duplicates.length > 0 && (
         <div className="banner banner-warn">
