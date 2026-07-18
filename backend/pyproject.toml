@@ -18,6 +18,8 @@ dependencies = [
     "passlib",
     # passlib 1.7.4 reads bcrypt.__about__, removed in bcrypt 4.1
     "bcrypt>=4.0,<4.1",
+    # Commit-time store resolution (fuzzy address matching)
+    "rapidfuzz",
 ]
 
 [project.optional-dependencies]

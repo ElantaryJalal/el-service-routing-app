@@ -57,9 +57,9 @@ def world():
         tour_id=tour.id,
         row_index=0,
         customer="Suggesttest Getraenkemarkt",
-        street="Historiengasse 9",
-        postal_code="04998",
-        city="Suggestadt",
+        claimed_street="Historiengasse 9",
+        claimed_postal_code="04998",
+        claimed_city="Suggestadt",
         status="done",
     )
     db.add(stop)

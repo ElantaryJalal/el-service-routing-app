@@ -16,6 +16,7 @@ from app.config import settings
 from app.db import SessionLocal, engine
 from app.main import app
 from app.models.stop import Stop
+from app.models.store import Store
 from app.models.tour import DateMode, Tour, TourStatus
 from app.routing.vroom import VroomClient
 from app.services.optimiser import (
@@ -73,6 +74,7 @@ client = TestClient(app)
 def db():
     session = SessionLocal()
     created: list[int] = []
+    created_stores: list[int] = []
 
     def factory(specs, date_mode=DateMode.optimized):
         """specs: dicts with optional completed day/hour and lon offset."""
@@ -91,14 +93,21 @@ def db():
         for i, spec in enumerate(specs):
             lon = 12.3 + i * 0.01
             done_day = spec.get("done_day")
+            store = Store(
+                name=f"Replan-Test Market {i}",
+                geom=WKTElement(f"POINT({lon} 51.3)", srid=4326),
+            )
+            session.add(store)
+            session.flush()
+            created_stores.append(store.id)
             stop = Stop(
                 tour_id=tour.id,
                 row_index=i,
                 customer=f"Market {i}",
+                store_id=store.id,
                 status="confirmed",
                 status_hint="pending",
                 service_minutes=60,
-                geom=WKTElement(f"POINT({lon} 51.3)", srid=4326),
                 assigned_day=done_day or spec.get("assigned_day"),
                 sequence=spec.get("sequence"),
                 completed_at=(
@@ -124,6 +133,8 @@ def db():
     for tid in created:
         session.query(Stop).filter(Stop.tour_id == tid).delete()
         session.query(Tour).filter(Tour.id == tid).delete()
+    if created_stores:
+        session.query(Store).filter(Store.id.in_(created_stores)).delete()
     session.commit()
     session.close()
 

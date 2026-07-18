@@ -8,7 +8,8 @@ WORK_END = time(18, 0)
 
 
 def _stop(opening_time=None, closing_time=None):
-    return SimpleNamespace(opening_time=opening_time, closing_time=closing_time)
+    # effective_hours is the store read-through (hours live on the store).
+    return SimpleNamespace(effective_hours=(opening_time, closing_time))
 
 
 def test_unknown_hours_fall_back_to_working_window():

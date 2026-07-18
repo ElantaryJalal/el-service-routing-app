@@ -188,28 +188,15 @@ def match_store_in_text(
 
 
 def enrich_stop_from_store(stop, store: Store) -> None:
-    """Fill a draft stop's gaps from its matched catalog store, in place.
+    """Link a draft stop to its matched catalog store and inherit plan data.
 
-    Extracted values win where present (the crew may have corrected an address);
-    the catalog only fills blanks — except the coordinate, which is taken from
-    the catalog as authoritative (no geocoding for known stores). Catalog-filled
-    address fields are trusted, so their low-confidence flags are cleared.
+    The store is the source of truth for address, coordinate, and hours — the
+    stop reads those through its effective_* views, so nothing is copied onto
+    the row. The claimed_* fields stay exactly what the plan printed (audit
+    trail). Only plan-level data is filled in: default tasks and the service
+    estimate.
     """
     stop.store_id = store.id
-
-    filled: list[str] = []
-    if not stop.street and store.street:
-        stop.street = store.street
-        filled.append("street")
-    if not stop.postal_code and store.postal_code:
-        stop.postal_code = store.postal_code
-        filled.append("postal_code")
-    if not stop.city and store.city:
-        stop.city = store.city
-        filled.append("city")
-
-    if store.geom is not None:
-        stop.geom = store.geom  # canonical coordinate wins over geocoding
 
     if not stop.tasks and store.default_tasks:
         for label in store.default_tasks:
@@ -238,8 +225,3 @@ def enrich_stop_from_store(stop, store: Store) -> None:
         )
         if catalog_minutes is not None:
             stop.service_minutes = catalog_minutes
-
-    if filled and stop.confidence:
-        stop.confidence = {
-            key: val for key, val in stop.confidence.items() if key not in filled
-        } or None

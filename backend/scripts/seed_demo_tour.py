@@ -15,7 +15,13 @@ from datetime import date, time
 from geoalchemy2.elements import WKTElement
 
 from app.db import SessionLocal
-from app.models.stop import HoursSource, Stop
+from app.models.stop import Stop
+from app.models.store import (
+    AddressProvenance,
+    GeomProvenance,
+    HoursSource,
+    Store,
+)
 from app.models.task import Task
 from app.models.tour import Tour, TourStatus
 
@@ -172,37 +178,56 @@ def main() -> None:
         db.add(tour)
         db.flush()
 
+        # The store is the source of truth for address/geometry/hours; the
+        # stop keeps the same address as its claim (what the paper printed).
         for i, (cust, street, plz, city, lon, lat, svc, close, tasks) in enumerate(
             STOPS
         ):
+            store = (
+                db.query(Store)
+                .filter(Store.name == cust, Store.postal_code == plz)
+                .first()
+            )
+            if store is None:
+                store = Store(
+                    name=cust,
+                    street=street,
+                    postal_code=plz,
+                    city=city,
+                    geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
+                    address_provenance=AddressProvenance.verified,
+                    geom_provenance=GeomProvenance.verified,
+                    opening_time=time(7, 0),
+                    closing_time=close,
+                    hours_source=HoursSource.osm,
+                )
+                db.add(store)
+                db.flush()
             stop = Stop(
                 tour_id=tour.id,
                 row_index=i,
                 customer=cust,
-                street=street,
-                postal_code=plz,
-                city=city,
+                store_id=store.id,
+                claimed_street=street,
+                claimed_postal_code=plz,
+                claimed_city=city,
                 service_minutes=svc,
-                opening_time=time(7, 0),
-                closing_time=close,
-                hours_source=HoursSource.osm,
                 status="confirmed",
                 status_hint="pending",
-                geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
             )
             db.add(stop)
             db.flush()
             for label in tasks:
                 db.add(Task(stop_id=stop.id, task_type=label.upper(), raw_label=label))
 
-        # One stop with no geom → shows up as "unassigned: missing location".
+        # One stop with no store → shows up as "unassigned: missing location".
         db.add(
             Stop(
                 tour_id=tour.id,
                 row_index=len(STOPS),
                 customer="Aldi (address unclear)",
-                street="Unleserlich",
-                city="Leipzig",
+                claimed_street="Unleserlich",
+                claimed_city="Leipzig",
                 service_minutes=60,
                 status="confirmed",
                 status_hint="pending",

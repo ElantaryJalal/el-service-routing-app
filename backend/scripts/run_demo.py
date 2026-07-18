@@ -51,8 +51,10 @@ def reset() -> None:
     )
     db.commit()
     db.close()
-    print(f"tour {TOUR_ID} reset: planned, unassigned, 0/{len(stops)} completed, "
-          f"{deleted} demo feedback row(s) removed")
+    print(
+        f"tour {TOUR_ID} reset: planned, unassigned, 0/{len(stops)} completed, "
+        f"{deleted} demo feedback row(s) removed"
+    )
 
 
 def backdate(stop_id: int, minutes_jitter: int) -> str:
@@ -110,8 +112,10 @@ def run(day_seconds: float) -> None:
     client = httpx.Client(base_url=API, timeout=30)
     _sign_in(client)
 
-    print(f"Signed in as Demo Mitarbeiter. Waiting for the dispatcher to assign "
-          f"tour {TOUR_ID} …  (assign it in the dashboard now)")
+    print(
+        f"Signed in as Demo Mitarbeiter. Waiting for the dispatcher to assign "
+        f"tour {TOUR_ID} …  (assign it in the dashboard now)"
+    )
     while True:
         mine = _request(client, "GET", "/me/tours").json()
         if any(t["id"] == TOUR_ID for t in mine):
@@ -144,13 +148,18 @@ def run(day_seconds: float) -> None:
             print(f"   ✓ {where:48s}  erledigt {stamped} ({jitter:+d} min zur ETA)")
 
             if day_no == 3 and not feedback_done and s["store_id"] is not None:
-                _request(client, "POST", "/feedback", json={
-                    "stop_id": s["id"],
-                    "client_uuid": FEEDBACK_UUID,
-                    "tags": ["parking_full"],
-                    "note": "Parkplatz war komplett voll — Anlieferung über den "
-                            "Seiteneingang, ca. 15 min verloren.",
-                })
+                _request(
+                    client,
+                    "POST",
+                    "/feedback",
+                    json={
+                        "stop_id": s["id"],
+                        "client_uuid": FEEDBACK_UUID,
+                        "tags": ["parking_full"],
+                        "note": "Parkplatz war komplett voll — Anlieferung über den "
+                        "Seiteneingang, ca. 15 min verloren.",
+                    },
+                )
                 backdate_feedback(FEEDBACK_UUID, s["id"])
                 feedback_done = True
                 print("   💬 Feedback hinterlassen (Parkplatz voll)")
@@ -160,10 +169,17 @@ def run(day_seconds: float) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reset", action="store_true",
-                        help="reset tour 118 to planned/unassigned and exit")
-    parser.add_argument("--day-seconds", type=float, default=75,
-                        help="how long each demo day takes (default 75s)")
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="reset tour 118 to planned/unassigned and exit",
+    )
+    parser.add_argument(
+        "--day-seconds",
+        type=float,
+        default=75,
+        help="how long each demo day takes (default 75s)",
+    )
     args = parser.parse_args()
     if args.reset:
         reset()

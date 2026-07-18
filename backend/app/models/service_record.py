@@ -69,6 +69,6 @@ class ServiceRecord(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    store: Mapped["Store"] = relationship(
+    store: Mapped["Store"] = relationship(  # noqa: F821
         back_populates="service_records"
-    )  # noqa: F821
+    )

@@ -84,6 +84,9 @@ def test_extract_then_draft_then_patch(monkeypatch, cleanup_tours):
     monkeypatch.setattr(settings, "extraction_provider", "anthropic")
     monkeypatch.setattr(tours_api, "extract_tour", lambda data, mt: _SAMPLE)
     monkeypatch.setattr(tours_api, "geocode_address", _fake_geocode)
+    # This test exercises the geocode path; catalog matching is covered by
+    # test_store_catalog (a matched stop would skip geocoding entirely).
+    monkeypatch.setattr(tours_api, "match_store", lambda *a, **k: None)
     client = TestClient(app)
 
     # --- Extract: a draft tour with two stops in row order ---
@@ -114,8 +117,8 @@ def test_extract_then_draft_then_patch(monkeypatch, cleanup_tours):
     stops = (
         db.query(Stop).filter(Stop.tour_id == tour_id).order_by(Stop.row_index).all()
     )
-    assert stops[0].geom is not None and stops[0].status == "unconfirmed"
-    assert stops[1].geom is None
+    assert stops[0].claimed_geom is not None and stops[0].status == "unconfirmed"
+    assert stops[1].claimed_geom is None
     db.close()
 
     # --- GET draft returns the same shape ---

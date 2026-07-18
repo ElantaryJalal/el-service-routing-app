@@ -1,9 +1,14 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 
 from pydantic import BaseModel
 
-from app.models.store import StoreSize
+from app.models.store import (
+    AddressProvenance,
+    GeomProvenance,
+    HoursSource,
+    StoreSize,
+)
 
 
 class StopSuggestion(BaseModel):
@@ -76,11 +81,21 @@ class StoreServiceTimeRead(BaseModel):
 class StoreRead(BaseModel):
     id: int
     name: str
+    # The VERIFIED address — the source of truth stops read through; the
+    # provenance below says how much it has actually been checked.
     street: str | None
     postal_code: str | None
     city: str | None
     lat: float | None
     lng: float | None
+    address_provenance: AddressProvenance
+    geom_provenance: GeomProvenance | None
+    verified_at: datetime | None
+    verified_by: str | None
+    # Store opening hours (moved off the plan rows — a property of the shop).
+    opening_time: time | None
+    closing_time: time | None
+    hours_source: HoursSource | None
     default_tasks: list[str] | None
     default_service_minutes: int | None
     # Learned from completion history (P4); null until enough samples exist.

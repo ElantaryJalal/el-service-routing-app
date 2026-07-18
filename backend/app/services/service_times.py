@@ -93,6 +93,8 @@ class Observation:
 
 def _completed_day_groups(db: Session) -> list[list]:
     """Completed, located, scheduled stops grouped by (tour, planned day)."""
+    # Drive legs are measured between store geometries — the authoritative
+    # coordinates the crew actually drove to (claimed_geom is diagnostic).
     rows = db.execute(
         select(
             Stop.id,
@@ -101,14 +103,15 @@ def _completed_day_groups(db: Session) -> list[list]:
             Stop.sequence,
             Stop.store_id,
             Stop.completed_at,
-            func.ST_X(Stop.geom).label("lon"),
-            func.ST_Y(Stop.geom).label("lat"),
+            func.ST_X(Store.geom).label("lon"),
+            func.ST_Y(Store.geom).label("lat"),
         )
+        .join(Store, Stop.store_id == Store.id)
         .where(
             Stop.completed_at.isnot(None),
             Stop.assigned_day.isnot(None),
             Stop.sequence.isnot(None),
-            Stop.geom.isnot(None),
+            Store.geom.isnot(None),
         )
         .order_by(Stop.tour_id, Stop.assigned_day, Stop.sequence)
     ).all()

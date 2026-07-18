@@ -17,14 +17,22 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import CurrentUser, ensure_tour_visible, require_role
 from app.config import settings
 from app.db import get_db
-from app.models.stop import HoursSource, Stop
+from app.models.stop import Stop
+from app.models.store import HoursSource, Store
 from app.models.task import Task
 from app.models.tour import Tour, TourStatus
 from app.models.user import Role, User
 from app.models.visit_feedback import VisitFeedback
 from app.schemas.draft import DraftStop, DraftStopCreate, DraftStopUpdate, TourDraft
 from app.schemas.optimise import OptimiseRequest, OptimiseResult
-from app.schemas.stop import CommitResult, StopDetail
+from app.schemas.stop import (
+    AddressMismatchRead,
+    CommitResult,
+    MatchCandidateRead,
+    MatchReviewItem,
+    NewStoreRead,
+    StopDetail,
+)
 from app.schemas.tour import TourAssignRequest, TourCreate, TourRead, TourUpdate
 from app.services.extraction import extract_tour, normalize_media_type
 from app.services.extraction_local import extract_tour_local
@@ -34,6 +42,13 @@ from app.services.opening_hours import fetch_opening_hours
 from app.services.optimiser import current_plan, optimise_tour
 from app.services.push import notify_user
 from app.services.store_catalog import enrich_stop_from_store, match_store
+from app.services.store_resolution import (
+    claim_matches_store,
+    create_store_from_claim,
+    order_no_index,
+    resolve_stop,
+    store_coords,
+)
 
 router = APIRouter(prefix="/tours", tags=["tours"])
 
@@ -69,13 +84,16 @@ def _draft_stop(stop: Stop) -> DraftStop:
         for key, val in (stop.confidence or {}).items()
         if isinstance(val, (int, float))
     }
+    # The draft edits the plan's *claim* — what the paper says, before the
+    # catalog resolves it. Wire names stay street/postal_code/... for the
+    # editor UI; they read and write the claimed_* columns.
     return DraftStop(
         id=stop.id,
         customer=stop.customer,
-        street=stop.street,
-        postal_code=stop.postal_code,
-        city=stop.city,
-        order_no=stop.order_no,
+        street=stop.claimed_street,
+        postal_code=stop.claimed_postal_code,
+        city=stop.claimed_city,
+        order_no=stop.claimed_order_no,
         tasks=", ".join(labels) if labels else None,
         remarks=stop.remarks_raw,
         service_minutes=stop.service_minutes,
@@ -180,10 +198,11 @@ def extract(
         tour.team_lead = tour.team_lead or parsed.team_lead
         tour.employee = tour.employee or parsed.employee
         tour.vehicle = tour.vehicle or parsed.vehicle
-        row_offset = (
-            db.scalar(select(func.max(Stop.row_index)).where(Stop.tour_id == tour.id))
-            or -1
-        ) + 1
+        # NB: `or -1` would misread a max of 0 (falsy) as "no rows".
+        max_row = db.scalar(
+            select(func.max(Stop.row_index)).where(Stop.tour_id == tour.id)
+        )
+        row_offset = 0 if max_row is None else max_row + 1
     else:
         tour = Tour(
             customer=(parsed.customer or "Unknown").strip() or "Unknown",
@@ -207,10 +226,10 @@ def extract(
             date=_parse_iso_date(extracted.date),
             weekday=extracted.weekday,
             customer=extracted.customer,
-            order_no=extracted.order_no,
-            street=extracted.street,
-            postal_code=extracted.postal_code,
-            city=extracted.city,
+            claimed_order_no=extracted.order_no,
+            claimed_street=extracted.street,
+            claimed_postal_code=extracted.postal_code,
+            claimed_city=extracted.city,
             remarks_raw=extracted.remarks,
             status_hint=status_hint if status_hint in _STATUS_HINTS else "unknown",
             service_minutes=_clamp_minutes(extracted.service_minutes),
@@ -222,8 +241,10 @@ def extract(
             if label:
                 stop.tasks.append(Task(task_type=label, raw_label=label))
 
-        # Known store? Take its canonical address/coordinate/tasks and skip
-        # geocoding. Otherwise fall back to geocoding the extracted address.
+        # Known store? Link it (address/coordinate/hours then read through the
+        # store) and inherit default tasks/minutes; no geocoding needed.
+        # Otherwise geocode the claim so the Confirm map has a marker — the
+        # result is only the claim's diagnostic coordinate.
         store = match_store(
             db, extracted.customer, extracted.city, extracted.postal_code
         )
@@ -235,7 +256,7 @@ def extract(
             )
             if coords is not None:
                 lon, lat = coords
-                stop.geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
+                stop.claimed_geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
         db.add(stop)
 
     db.commit()
@@ -311,6 +332,13 @@ def patch_draft_stop(
     confidence = dict(stop.confidence or {})
     address_changed = False
 
+    # Draft wire fields edit the plan's claim (claimed_* columns).
+    claim_fields = {
+        "street": "claimed_street",
+        "postal_code": "claimed_postal_code",
+        "city": "claimed_city",
+        "order_no": "claimed_order_no",
+    }
     for field in update.model_fields_set:
         value = data[field]
         if field == "tasks":
@@ -323,7 +351,7 @@ def patch_draft_stop(
             for label in labels:
                 stop.tasks.append(Task(task_type=label, raw_label=label))
         else:
-            setattr(stop, field, value)
+            setattr(stop, claim_fields.get(field, field), value)
             if field in ("street", "postal_code", "city"):
                 address_changed = True
         confidence.pop(field, None)
@@ -331,12 +359,17 @@ def patch_draft_stop(
     stop.confidence = confidence or None
 
     if address_changed:
-        coords = geocode_address(db, stop.street, stop.postal_code, stop.city)
-        stop.geom = (
+        coords = geocode_address(
+            db, stop.claimed_street, stop.claimed_postal_code, stop.claimed_city
+        )
+        stop.claimed_geom = (
             WKTElement(f"POINT({coords[0]} {coords[1]})", srid=4326)
             if coords is not None
             else None
         )
+        # The claim changed, so its agreement with the store is unknown again
+        # until the next commit re-checks it.
+        stop.address_matches_store = None
 
     db.commit()
     db.refresh(stop, attribute_names=["tasks"])
@@ -364,17 +397,17 @@ def add_stop(
             status_code=409, detail="stops can only be added to a draft tour"
         )
 
-    next_row = (
-        db.scalar(select(func.max(Stop.row_index)).where(Stop.tour_id == tour_id)) or -1
-    ) + 1
+    # NB: `or -1` would misread a max of 0 (falsy) as "no rows".
+    max_row = db.scalar(select(func.max(Stop.row_index)).where(Stop.tour_id == tour_id))
+    next_row = 0 if max_row is None else max_row + 1
     stop = Stop(
         tour_id=tour_id,
         row_index=next_row,
         customer=payload.customer,
-        order_no=payload.order_no,
-        street=payload.street,
-        postal_code=payload.postal_code,
-        city=payload.city,
+        claimed_order_no=payload.order_no,
+        claimed_street=payload.street,
+        claimed_postal_code=payload.postal_code,
+        claimed_city=payload.city,
         service_minutes=payload.service_minutes,
         status="unconfirmed",
         status_hint="pending",
@@ -391,7 +424,7 @@ def add_stop(
         coords = geocode_address(db, payload.street, payload.postal_code, payload.city)
         if coords is not None:
             lon, lat = coords
-            stop.geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
+            stop.claimed_geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
 
     db.add(stop)
     db.commit()
@@ -423,13 +456,17 @@ def list_stops(
         .order_by(Stop.row_index)
     ).all()
 
-    # One query for every coordinate; ungeocoded stops are simply absent.
+    # One query for every coordinate — the linked store's geometry, and
+    # nothing else. The claim's geocode is diagnostic: markers and the
+    # navigate deep-link must never send anyone to a printed typo. Stops
+    # without a geocoded store have null lat/lng.
     coords = {
         sid: (lon, lat)
         for sid, lon, lat in db.execute(
-            select(Stop.id, func.ST_X(Stop.geom), func.ST_Y(Stop.geom)).where(
-                Stop.tour_id == tour_id, Stop.geom.isnot(None)
-            )
+            select(Stop.id, func.ST_X(Store.geom), func.ST_Y(Store.geom))
+            .select_from(Stop)
+            .join(Store, Stop.store_id == Store.id)
+            .where(Stop.tour_id == tour_id, Store.geom.isnot(None))
         ).all()
     }
 
@@ -454,19 +491,28 @@ def list_stops(
                 id=stop.id,
                 tour_id=stop.tour_id,
                 customer=stop.customer,
-                opening_time=stop.opening_time,
-                closing_time=stop.closing_time,
+                opening_time=stop.effective_opening_time,
+                closing_time=stop.effective_closing_time,
                 service_minutes=stop.service_minutes,
-                hours_source=stop.hours_source,
+                hours_source=stop.effective_hours_source,
                 status=stop.status,
                 completed_at=stop.completed_at,
                 assigned_day=stop.assigned_day,
                 sequence=stop.sequence,
                 eta=stop.eta,
                 unassigned_reason=stop.unassigned_reason,
-                street=stop.street,
-                postal_code=stop.postal_code,
-                city=stop.city,
+                street=stop.effective_street,
+                postal_code=stop.effective_postal_code,
+                city=stop.effective_city,
+                claimed_street=stop.claimed_street,
+                claimed_postal_code=stop.claimed_postal_code,
+                claimed_city=stop.claimed_city,
+                address_matches_store=stop.address_matches_store,
+                address_review_resolved_at=stop.address_review_resolved_at,
+                address_review_resolved_by=stop.address_review_resolved_by,
+                store_address_provenance=(
+                    stop.store.address_provenance if stop.store else None
+                ),
                 tasks=", ".join(labels) if labels else None,
                 remarks=stop.remarks_raw,
                 lat=lat,
@@ -490,51 +536,181 @@ def commit_tour(
     tour_id: int,
     db: Annotated[Session, Depends(get_db)],
 ) -> CommitResult:
-    """Confirm a tour: geocode stragglers, flag duplicates, enrich OSM hours.
+    """Confirm a tour: resolve every row against the store catalog first.
 
-    Extraction/review already geocode on the way in, so only stops still
-    missing a coordinate are retried here. Only stops whose hours are still
-    unknown (hours_source='default') are looked up, so manual and
-    previously-fetched OSM hours are never overwritten. Suspected duplicate
-    rows (same catalog store, or same normalized street+PLZ) are reported for
-    the review UI to resolve — commit never deletes data on its own.
+    Each unlinked row runs the conservative match cascade (order_no →
+    normalized-address fuzzy → 50 m proximity; see services.store_resolution).
+    A matched row links its store and inherits the verified address, geometry,
+    and hours through the effective_* read-through — no geocoding, and the
+    store is never overwritten from the plan's text (the plan is the less
+    reliable source). An ambiguous match is returned for dispatcher review,
+    never auto-linked. A row matching nothing becomes a candidate new store
+    (address_provenance='geocoded') and is reported, not silently inserted.
+    The only geocoding commit ever does is for those unmatched claims.
+
+    Every linked stop gets address_matches_store: whether the plan's claim
+    agrees with the store's verified address. Disagreements keep both values
+    and are flagged — the claim is the audit trail of what the paper said.
+
+    Store hours still unknown after linking are looked up from OSM
+    (best-effort); manual and previously-fetched hours are never overwritten.
+    Suspected duplicate rows are reported for the review UI to resolve —
+    commit never deletes data on its own.
     """
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
 
     stops = db.scalars(
-        select(Stop).where(Stop.tour_id == tour_id).order_by(Stop.row_index)
+        select(Stop)
+        .where(Stop.tour_id == tour_id)
+        .options(selectinload(Stop.tasks))
+        .order_by(Stop.row_index)
     ).all()
 
-    enriched = 0
+    stores = list(db.scalars(select(Store)))
+    store_by_id = {s.id: s for s in stores}
+    by_order_no = order_no_index(db)
+    coords = store_coords(db, stores)
+
+    # Extract-time geocodes of the claims, one query (diagnostic coordinates).
+    claim_coords = {
+        sid: (lon, lat)
+        for sid, lon, lat in db.execute(
+            select(
+                Stop.id, func.ST_X(Stop.claimed_geom), func.ST_Y(Stop.claimed_geom)
+            ).where(Stop.tour_id == tour_id, Stop.claimed_geom.isnot(None))
+        ).all()
+    }
+
+    new_stores: list[NewStoreRead] = []
+    review_items: list[MatchReviewItem] = []
+    created_store_ids: set[int] = set()
+
     for stop in stops:
         # Committing the tour confirms its stops (extract leaves them
         # 'unconfirmed'); a stop already marked 'done' keeps its status.
         if stop.status != "done":
             stop.status = "confirmed"
 
-        if stop.geom is None:
-            coords = geocode_address(db, stop.street, stop.postal_code, stop.city)
-            if coords is not None:
-                stop.geom = WKTElement(f"POINT({coords[0]} {coords[1]})", srid=4326)
+        if stop.store_id is not None:
+            continue  # already resolved (extraction match or type-ahead pick)
 
-        if stop.geom is None or stop.hours_source != HoursSource.default:
+        claim_coord = claim_coords.get(stop.id)
+        resolution = resolve_stop(
+            stop,
+            stores,
+            by_order_no=by_order_no,
+            coords=coords,
+            claim_coord=claim_coord,
+        )
+
+        if resolution.outcome == "unresolved" and claim_coord is None:
+            # The one geocode commit permits: an unmatched claim, needed both
+            # for the proximity rule and for the candidate store's geometry.
+            geocoded = geocode_address(
+                db, stop.claimed_street, stop.claimed_postal_code, stop.claimed_city
+            )
+            if geocoded is not None:
+                claim_coord = geocoded
+                stop.claimed_geom = WKTElement(
+                    f"POINT({claim_coord[0]} {claim_coord[1]})", srid=4326
+                )
+                resolution = resolve_stop(
+                    stop,
+                    stores,
+                    by_order_no=by_order_no,
+                    coords=coords,
+                    claim_coord=claim_coord,
+                )
+
+        if resolution.outcome == "linked":
+            stop.store_id = resolution.store.id
+        elif resolution.outcome == "ambiguous":
+            review_items.append(
+                MatchReviewItem(
+                    stop_id=stop.id,
+                    customer=stop.customer,
+                    reason=resolution.reason or "ambiguous match",
+                    candidates=[
+                        MatchCandidateRead(
+                            store_id=c.store.id,
+                            name=c.store.name,
+                            score=round(c.score, 1),
+                            rule=c.rule,
+                        )
+                        for c in resolution.candidates
+                    ],
+                )
+            )
+        elif stop.customer or stop.claimed_street:
+            store = create_store_from_claim(stop, claim_coord)
+            db.add(store)
+            db.flush()  # assign the id; visible to later rows of this commit
+            stores.append(store)
+            store_by_id[store.id] = store
+            created_store_ids.add(store.id)
+            if claim_coord is not None:
+                coords[store.id] = claim_coord
+            stop.store_id = store.id
+            new_stores.append(
+                NewStoreRead(stop_id=stop.id, store_id=store.id, name=store.name)
+            )
+
+    # Claim-vs-store audit for every linked stop: both values are kept; a
+    # mismatch is how the office learns their printed plan was wrong.
+    mismatches: list[AddressMismatchRead] = []
+    matched = 0
+    for stop in stops:
+        if stop.store_id is None or stop.store_id not in store_by_id:
+            stop.address_matches_store = None
             continue
+        store = store_by_id[stop.store_id]
+        if stop.store_id not in created_store_ids:
+            matched += 1
+        stop.address_matches_store = claim_matches_store(stop, store)
+        if stop.address_matches_store is False:
+            mismatches.append(
+                AddressMismatchRead(
+                    stop_id=stop.id,
+                    store_id=store.id,
+                    claimed=", ".join(
+                        p
+                        for p in (
+                            stop.claimed_street,
+                            stop.claimed_postal_code,
+                            stop.claimed_city,
+                        )
+                        if p
+                    ),
+                    verified=", ".join(
+                        p for p in (store.street, store.postal_code, store.city) if p
+                    ),
+                )
+            )
 
-        lon, lat = db.execute(
-            select(func.ST_X(Stop.geom), func.ST_Y(Stop.geom)).where(Stop.id == stop.id)
-        ).one()
-
+    # Hours enrichment happens on the *store* (hours are a property of the
+    # shop). Only stores whose hours were never captured are looked up.
+    enriched = 0
+    for store_id in {s.store_id for s in stops if s.store_id is not None}:
+        store = store_by_id.get(store_id)
+        if (
+            store is None
+            or store.hours_source is not None
+            or store.opening_time is not None
+            or store.closing_time is not None
+            or store_id not in coords
+        ):
+            continue
+        lon, lat = coords[store_id]
         try:
             window = fetch_opening_hours(lon, lat)
         except Exception:
             # Best-effort: never fail commit on an Overpass hiccup.
             window = None
-
         if window is not None:
-            stop.opening_time, stop.closing_time = window
-            stop.hours_source = HoursSource.osm
+            store.opening_time, store.closing_time = window
+            store.hours_source = HoursSource.osm
             enriched += 1
 
     # Committing confirms the plan; re-commits on a live tour keep its stage.
@@ -547,6 +723,10 @@ def commit_tour(
         status=tour.status,
         stops_total=len(stops),
         stops_enriched=enriched,
+        stops_matched=matched,
+        new_stores=new_stores,
+        review_items=review_items,
+        address_mismatches=mismatches,
         duplicates=_duplicate_groups(stops),
     )
 
@@ -558,10 +738,12 @@ def _duplicate_groups(stops: list[Stop]) -> list[list[int]]:
         if stop.store_id is not None:
             key = ("store", stop.store_id)
         else:
-            street = "".join(ch for ch in (stop.street or "").lower() if ch.isalnum())
+            street = "".join(
+                ch for ch in (stop.claimed_street or "").lower() if ch.isalnum()
+            )
             if not street:
                 continue
-            key = ("addr", street, (stop.postal_code or "").strip())
+            key = ("addr", street, (stop.claimed_postal_code or "").strip())
         groups.setdefault(key, []).append(stop.id)
     return [ids for ids in groups.values() if len(ids) > 1]
 

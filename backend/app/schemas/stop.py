@@ -1,12 +1,17 @@
 from datetime import date, datetime, time
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.stop import HoursSource
+from app.models.store import AddressProvenance, HoursSource
 
 
 class StopUpdate(BaseModel):
-    """Per-stop manual overrides. Only provided fields are applied (PATCH)."""
+    """Per-stop manual overrides. Only provided fields are applied (PATCH).
+
+    opening/closing_time write through to the stop's linked *store* (hours are
+    a property of the shop); a stop without a store cannot hold hours.
+    """
 
     opening_time: time | None = None
     closing_time: time | None = None
@@ -29,16 +34,30 @@ class StopCompleteRequest(BaseModel):
     force: bool = False
 
 
+class ResolveAddressRequest(BaseModel):
+    """Dispatcher's verdict on a plan-vs-store address mismatch.
+
+    'keep_store' (the default expectation): the store's verified address
+    stands; the claim stays as audit and the review row is dismissed durably.
+    'use_claim': the plan was right — the store's address is updated from the
+    claim and marked verified by the dispatcher.
+    """
+
+    action: Literal["keep_store", "use_claim"]
+
+
 class StopRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: int
     tour_id: int
     customer: str | None
-    opening_time: time | None
-    closing_time: time | None
+    # Hours are stored on the linked store; these read through the stop's
+    # effective_* views (wire names kept stable for the clients).
+    opening_time: time | None = Field(validation_alias="effective_opening_time")
+    closing_time: time | None = Field(validation_alias="effective_closing_time")
+    hours_source: HoursSource = Field(validation_alias="effective_hours_source")
     service_minutes: int | None
-    hours_source: HoursSource
     status: str
     completed_at: datetime | None
     # Plan placement — set by the optimiser or a manual move (PATCH .../plan).
@@ -52,12 +71,25 @@ class StopRead(BaseModel):
 
 class StopDetail(StopRead):
     """A committed stop with the address, task labels, and coordinate the map
-    needs. lat/lng come from the PostGIS geom (null until geocoded); tasks is
-    the stop's task labels joined for display."""
+    needs. street/postal_code/city and lat/lng are the *effective* values (the
+    linked store's verified data when there is one); claimed_* is what the
+    printed plan said — the audit trail shown when the paper was wrong."""
 
     street: str | None
     postal_code: str | None
     city: str | None
+    claimed_street: str | None
+    claimed_postal_code: str | None
+    claimed_city: str | None
+    # True when the plan's claimed address agrees with the store's verified
+    # one; null = not checked (set during commit).
+    address_matches_store: bool | None
+    # Set once a dispatcher resolved the mismatch (survives re-commits).
+    address_review_resolved_at: datetime | None
+    address_review_resolved_by: str | None
+    # The linked store's address trust level — 'printed'/'geocoded' stores are
+    # new-store candidates the dispatcher should review before optimising.
+    store_address_provenance: AddressProvenance | None
     tasks: str | None
     # Free-text instructions from the plan's remark column; the work for a
     # stop may be stated here instead of task codes.
@@ -74,11 +106,53 @@ class StopDetail(StopRead):
     store_feedback_count: int
 
 
+class MatchCandidateRead(BaseModel):
+    store_id: int
+    name: str
+    score: float
+    rule: str
+
+
+class MatchReviewItem(BaseModel):
+    """An ambiguous catalog match commit refused to auto-link — a false link
+    silently sends the crew to the wrong store, so the dispatcher decides."""
+
+    stop_id: int
+    customer: str | None
+    reason: str
+    candidates: list[MatchCandidateRead]
+
+
+class NewStoreRead(BaseModel):
+    """A row that matched nothing became a candidate new store — an event
+    worth noticing, not a silent insert."""
+
+    stop_id: int
+    store_id: int
+    name: str
+
+
+class AddressMismatchRead(BaseModel):
+    """The plan printed an address that disagrees with the linked store's
+    verified one. Both are kept: claimed_* is the audit trail that shows the
+    office their plan was wrong."""
+
+    stop_id: int
+    store_id: int
+    claimed: str
+    verified: str
+
+
 class CommitResult(BaseModel):
     tour_id: int
     status: str
     stops_total: int
     stops_enriched: int
+    # Catalog resolution outcome: every stop linked to a store, how.
+    stops_matched: int = 0
+    new_stores: list[NewStoreRead] = []
+    review_items: list[MatchReviewItem] = []
+    address_mismatches: list[AddressMismatchRead] = []
     # Groups of stop ids that look like the same market twice (same catalog
     # store, or same normalized street+PLZ); the review UI prompts to resolve.
     duplicates: list[list[int]] = []

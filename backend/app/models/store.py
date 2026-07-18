@@ -1,8 +1,8 @@
 import enum
-from datetime import datetime
+from datetime import datetime, time
 
 from geoalchemy2 import Geometry, WKBElement
-from sqlalchemy import Boolean, DateTime, Integer, String
+from sqlalchemy import Boolean, DateTime, Integer, String, Time
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,6 +15,29 @@ class StoreSize(enum.StrEnum):
     small = "small"
     medium = "medium"
     large = "large"
+
+
+class HoursSource(enum.StrEnum):
+    """Where the store's opening/closing hours came from."""
+
+    osm = "osm"
+    manual = "manual"
+    default = "default"
+
+
+class AddressProvenance(enum.StrEnum):
+    """How trustworthy the store's address is, from weakest to strongest."""
+
+    printed = "printed"  # copied off a plan, never checked
+    geocoded = "geocoded"  # resolved by a geocoder
+    verified = "verified"  # checked by the office
+    field_confirmed = "field_confirmed"  # confirmed on site by the crew
+
+
+class GeomProvenance(enum.StrEnum):
+    geocoded = "geocoded"
+    verified = "verified"
+    field_confirmed = "field_confirmed"
 
 
 class Store(Base):
@@ -37,6 +60,41 @@ class Store(Base):
     city: Mapped[str | None] = mapped_column(String)
     geom: Mapped[WKBElement | None] = mapped_column(
         Geometry(geometry_type="POINT", srid=4326, spatial_index=False)
+    )
+    # Provenance of the address/coordinate above. The stop keeps whatever the
+    # plan printed as claimed_*; this row is what routing and navigation trust.
+    address_provenance: Mapped[AddressProvenance] = mapped_column(
+        SAEnum(
+            AddressProvenance,
+            name="address_provenance",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=AddressProvenance.printed,
+        server_default=AddressProvenance.printed.value,
+    )
+    geom_provenance: Mapped[GeomProvenance | None] = mapped_column(
+        SAEnum(
+            GeomProvenance,
+            name="geom_provenance",
+            values_callable=lambda e: [m.value for m in e],
+        )
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_by: Mapped[str | None] = mapped_column(String)
+    # Single weekday opening/closing pair (the tour runs Mon–Fri and German
+    # retail hours are near-uniform across weekdays). Hours are a property of
+    # the shop — stops read them through Stop.effective_hours.
+    opening_time: Mapped[time | None] = mapped_column(Time)
+    # closing_time drives the "done before it closes" feasibility check.
+    closing_time: Mapped[time | None] = mapped_column(Time)
+    # Null = hours never captured for this store.
+    hours_source: Mapped[HoursSource | None] = mapped_column(
+        SAEnum(
+            HoursSource,
+            name="hours_source",
+            values_callable=lambda e: [m.value for m in e],
+        )
     )
     default_tasks: Mapped[list[str] | None] = mapped_column(JSONB)
     default_service_minutes: Mapped[int | None] = mapped_column(Integer)

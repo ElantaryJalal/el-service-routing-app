@@ -13,6 +13,7 @@ from app.config import settings
 from app.db import SessionLocal, engine
 from app.main import app
 from app.models.stop import Stop
+from app.models.store import Store
 from app.models.tour import Tour
 from app.services.extraction import ExtractedStop, ExtractedTour
 
@@ -38,6 +39,8 @@ def cleanup_tours():
     for tour_id in created:
         db.query(Stop).filter(Stop.tour_id == tour_id).delete()
         db.query(Tour).filter(Tour.id == tour_id).delete()
+    # Commit creates candidate stores for unmatched rows; drop the test ones.
+    db.query(Store).filter(Store.name.in_(["Testmarkt", "Aldi A", "Aldi B"])).delete()
     db.commit()
     db.close()
 
@@ -58,8 +61,15 @@ def _create_tour() -> dict:
 
 def test_blank_tour_manual_stops_and_duplicate_commit(monkeypatch, cleanup_tours):
     monkeypatch.setattr(tours_api, "match_store", lambda *a, **k: None)
+    # Distinct coordinate per street: a single shared point would put every
+    # row within the 50 m proximity rule of the first created store.
     monkeypatch.setattr(
-        tours_api, "geocode_address", lambda *a, **k: (12.3731, 51.3397)
+        tours_api,
+        "geocode_address",
+        lambda db, street, *a, **k: (
+            12.37 + (abs(hash(street or "")) % 100) * 1e-2,
+            51.34,
+        ),
     )
     monkeypatch.setattr(tours_api, "fetch_opening_hours", lambda *a, **k: None)
 

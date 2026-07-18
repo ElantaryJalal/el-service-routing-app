@@ -38,7 +38,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from math import asin, cos, radians, sin, sqrt
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.models.service_record import ServiceRecord, learned_minutes, task_signature
@@ -57,6 +57,7 @@ MatrixProvider = Callable[[Sequence[Coordinate]], list[list[int]]]
 REASON_NO_WINDOW = "no feasible time window"
 REASON_NO_DAYS = "exceeds available days"
 REASON_MISSING_LOCATION = "missing location"
+REASON_STORE_NOT_GEOCODED = "store not geocoded"
 REASON_FAR_REGION = "too far from the rest of the tour to fit into the week"
 REASON_NOT_SCHEDULED = "not scheduled yet"
 REASON_REMOVED_MANUALLY = "taken off the plan by hand"
@@ -158,6 +159,8 @@ def optimise_tour(
                 Stop.status_hint != "skip",
                 Stop.completed_at.is_(None),
             )
+            # effective hours/geom read through to the store; load it in one go.
+            .options(selectinload(Stop.store), selectinload(Stop.tasks))
         )
     )
 
@@ -228,7 +231,18 @@ def optimise_tour(
 
     for stop in stops:
         if stop.id not in coords_by_id:
-            mark_unassigned(stop, REASON_MISSING_LOCATION)
+            # A linked store without geometry is a data problem worth naming;
+            # an unlinked stop simply has no location yet. Neither ever falls
+            # back to the claim's geocode — a bad printed row must not be able
+            # to misroute anyone.
+            mark_unassigned(
+                stop,
+                (
+                    REASON_STORE_NOT_GEOCODED
+                    if stop.store_id is not None
+                    else REASON_MISSING_LOCATION
+                ),
+            )
             continue
 
         stop_days = days_by_stop.get(stop.id, days) if not pin_dates else days
@@ -360,13 +374,19 @@ def _profile_service_minutes(
 
 
 def _last_completed_coord(db: Session, tour_id: int) -> Coordinate | None:
-    """Where the crew last finished a stop — the mid-week re-plan start."""
+    """Where the crew last finished a stop — the mid-week re-plan start.
+
+    Coordinates come from the store's geometry only — the plan's claimed
+    geocode is diagnostic and never routes anyone.
+    """
     row = db.execute(
-        select(func.ST_X(Stop.geom), func.ST_Y(Stop.geom))
+        select(func.ST_X(Store.geom), func.ST_Y(Store.geom))
+        .select_from(Stop)
+        .join(Store, Stop.store_id == Store.id)
         .where(
             Stop.tour_id == tour_id,
             Stop.completed_at.isnot(None),
-            Stop.geom.isnot(None),
+            Store.geom.isnot(None),
         )
         .order_by(Stop.completed_at.desc())
         .limit(1)
@@ -375,12 +395,15 @@ def _last_completed_coord(db: Session, tour_id: int) -> Coordinate | None:
 
 
 def _coords_by_id(db: Session, stop_ids: list[int]) -> dict[int, Coordinate]:
+    """Routable coordinate per stop id: the linked store's geometry, and
+    nothing else. Stops absent from the result have no routable location."""
     if not stop_ids:
         return {}
     rows = db.execute(
-        select(Stop.id, func.ST_X(Stop.geom), func.ST_Y(Stop.geom)).where(
-            Stop.id.in_(stop_ids), Stop.geom.isnot(None)
-        )
+        select(Stop.id, func.ST_X(Store.geom), func.ST_Y(Store.geom))
+        .select_from(Stop)
+        .join(Store, Stop.store_id == Store.id)
+        .where(Stop.id.in_(stop_ids), Store.geom.isnot(None))
     ).all()
     return {sid: (lon, lat) for sid, lon, lat in rows}
 
@@ -396,6 +419,8 @@ def _tour_plan_stops(db: Session, tour_id: int) -> list[Stop]:
                 Stop.status == "confirmed",
                 Stop.status_hint != "skip",
             )
+            # effective_geom reads through to the store; load it in one go.
+            .options(selectinload(Stop.store))
         )
     )
 
@@ -449,7 +474,15 @@ def current_plan(
         UnassignedStop(
             stop_id=s.id,
             reason=s.unassigned_reason
-            or (REASON_MISSING_LOCATION if s.geom is None else REASON_NOT_SCHEDULED),
+            or (
+                REASON_NOT_SCHEDULED
+                if s.effective_geom is not None
+                else (
+                    REASON_STORE_NOT_GEOCODED
+                    if s.store_id is not None
+                    else REASON_MISSING_LOCATION
+                )
+            ),
         )
         for s in stops
         if s.assigned_day is None and s.completed_at is None

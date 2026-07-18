@@ -103,44 +103,50 @@ def test_match_store_in_text(catalog):
     db.close()
 
 
-def test_enrich_stop_fills_gaps_and_coordinate(catalog):
+def test_enrich_links_store_and_reads_through(catalog):
+    """Enrichment links the store and fills plan data (tasks/minutes); the
+    address and coordinate are never copied — they read through the store."""
     nord_id, _ = catalog
     db = SessionLocal()
     store = db.get(Store, nord_id)
 
-    # A stop that named the store but has no address, tasks, or service time,
-    # and a low-confidence street flag.
     stop = Stop(customer="Testmarkt Nordstern", confidence={"street": 0.3})
     enrich_stop_from_store(stop, store)
+    stop.store = store  # what the relationship would resolve to
 
     assert stop.store_id == nord_id
-    assert stop.street == "Teststr. 1"
-    assert stop.postal_code == "99001"
-    assert stop.geom is not None  # canonical coordinate, no geocoding needed
+    # Nothing lands on the claim: it stays exactly what the plan printed.
+    assert stop.claimed_street is None
+    assert stop.claimed_geom is None
+    # The effective views read the store's truth.
+    assert stop.effective_street == "Teststr. 1"
+    assert stop.effective_postal_code == "99001"
+    assert stop.effective_geom is not None  # canonical coordinate, no geocoding
     assert stop.service_minutes == 75
     assert sorted(t.task_type for t in stop.tasks) == ["EKW", "Gaskuehler"]
-    assert stop.confidence is None  # filled street's flag cleared
 
     db.close()
 
 
-def test_enrich_keeps_extracted_values(catalog):
-    """Extracted address/tasks win; only the coordinate is taken from catalog."""
+def test_enrich_keeps_claim_and_plan_values(catalog):
+    """The printed claim survives verbatim; the row's own tasks/minutes win."""
     nord_id, _ = catalog
     db = SessionLocal()
     store = db.get(Store, nord_id)
 
     stop = Stop(
         customer="Testmarkt Nordstern",
-        street="Teststr. 99",  # crew corrected the number
-        postal_code="99001",
-        city="Teststadt",
+        claimed_street="Teststr. 99",  # what the paper printed
+        claimed_postal_code="99001",
+        claimed_city="Teststadt",
         service_minutes=90,
     )
     stop.tasks.append(Task(task_type="Fussmatten", raw_label="Fussmatten"))
     enrich_stop_from_store(stop, store)
+    stop.store = store
 
-    assert stop.street == "Teststr. 99"  # not overwritten
+    assert stop.claimed_street == "Teststr. 99"  # audit trail untouched
+    assert stop.effective_street == "Teststr. 1"  # the store's verified street
     assert stop.service_minutes == 90  # not overwritten
     assert [t.task_type for t in stop.tasks] == ["Fussmatten"]  # defaults not added
     assert stop.store_id == nord_id

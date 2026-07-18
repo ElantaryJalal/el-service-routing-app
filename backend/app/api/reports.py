@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_role
 from app.db import get_db
@@ -75,7 +75,13 @@ def overview(
 
     work_tour_ids = [t.id for t in tours if t.status != TourStatus.draft]
     stops: list[Stop] = (
-        list(db.scalars(select(Stop).where(Stop.tour_id.in_(work_tour_ids))))
+        list(
+            db.scalars(
+                select(Stop).where(Stop.tour_id.in_(work_tour_ids))
+                # effective_city reads through to the store (outstanding list).
+                .options(selectinload(Stop.store))
+            )
+        )
         if work_tour_ids
         else []
     )
@@ -134,7 +140,7 @@ def overview(
                 stop_id=s.id,
                 tour_id=s.tour_id,
                 customer=s.customer,
-                city=s.city,
+                city=s.effective_city,
                 assigned_day=s.assigned_day,
                 eta=s.eta,
             )

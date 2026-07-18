@@ -76,6 +76,13 @@ def _store_read(db: Session, store: Store) -> StoreRead:
         city=store.city,
         lat=lat,
         lng=lon,
+        address_provenance=store.address_provenance,
+        geom_provenance=store.geom_provenance,
+        verified_at=store.verified_at,
+        verified_by=store.verified_by,
+        opening_time=store.opening_time,
+        closing_time=store.closing_time,
+        hours_source=store.hours_source,
         default_tasks=store.default_tasks,
         default_service_minutes=store.default_service_minutes,
         learned_service_minutes=store.learned_service_minutes,
@@ -160,14 +167,19 @@ def suggest_stops(
             for s in suggestions
         }
         rows = db.execute(
-            select(Stop.customer, Stop.street, Stop.postal_code, Stop.city)
+            select(
+                Stop.customer,
+                Stop.claimed_street,
+                Stop.claimed_postal_code,
+                Stop.claimed_city,
+            )
             .where(
                 Stop.store_id.is_(None),
                 Stop.customer.isnot(None),
                 or_(
                     Stop.customer.ilike(pattern),
-                    Stop.street.ilike(pattern),
-                    Stop.city.ilike(pattern),
+                    Stop.claimed_street.ilike(pattern),
+                    Stop.claimed_city.ilike(pattern),
                 ),
             )
             .distinct()

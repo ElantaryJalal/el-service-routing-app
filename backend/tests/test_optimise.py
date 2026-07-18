@@ -14,9 +14,15 @@ from geoalchemy2.elements import WKTElement
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.models.stop import Stop
+from app.models.store import Store
 from app.models.tour import DateMode, Tour, TourStatus
 from app.routing.vroom import VroomClient
-from app.services.optimiser import REASON_FAR_REGION, OptimiseConfig, optimise_tour
+from app.services.optimiser import (
+    REASON_FAR_REGION,
+    REASON_STORE_NOT_GEOCODED,
+    OptimiseConfig,
+    optimise_tour,
+)
 
 MONDAY = date(2026, 6, 29)
 FRIDAY = date(2026, 7, 3)
@@ -58,7 +64,11 @@ pytestmark = pytest.mark.skipif(
 
 def _make_tour(db, date_from, date_to, specs, date_mode=DateMode.fixed):
     """specs: list of (service_minutes, closing_time) tuples, or dicts adding
-    optional lon/lat/date per stop. Returns (tour_id, [ids])."""
+    optional lon/lat/date per stop. Returns (tour_id, [stop ids], [store ids]).
+
+    Geometry and closing hours live on the store (0012): each spec gets its
+    own store carrying them; the stop only links it.
+    """
     tour = Tour(
         customer="Aldi Nord",
         calendar_week=27,
@@ -69,38 +79,54 @@ def _make_tour(db, date_from, date_to, specs, date_mode=DateMode.fixed):
     )
     db.add(tour)
     db.flush()
-    ids = []
+    stops = []
+    store_ids = []
     for i, spec in enumerate(specs):
         if isinstance(spec, tuple):
             spec = {"service_minutes": spec[0], "closing_time": spec[1]}
         lon = spec.get("lon", 12.3 + i * 0.01)
         lat = spec.get("lat", 51.3 + i * 0.01)
+        store = Store(
+            name=f"Optimise-Test Market {i}",
+            closing_time=spec.get("closing_time"),
+            geom=(
+                None
+                if spec.get("store_geom") is None and "store_geom" in spec
+                else WKTElement(f"POINT({lon} {lat})", srid=4326)
+            ),
+        )
+        db.add(store)
+        db.flush()
+        store_ids.append(store.id)
         stop = Stop(
             tour_id=tour.id,
             row_index=i,
             customer=f"Market {i}",
+            store_id=store.id,
             status="confirmed",
             status_hint="pending",
             date=spec.get("date"),
             service_minutes=spec.get("service_minutes"),
-            closing_time=spec.get("closing_time"),
-            geom=WKTElement(f"POINT({lon} {lat})", srid=4326),
+            claimed_geom=spec.get("claimed_geom"),
         )
         db.add(stop)
-        ids.append(stop)
+        stops.append(stop)
     db.commit()
-    result = (tour.id, [s.id for s in ids])
-    return result
+    return (tour.id, [s.id for s in stops], store_ids)
 
 
 @pytest.fixture
 def db():
     session = SessionLocal()
     created_tours: list[int] = []
+    created_stores: list[int] = []
 
     def factory(date_from, date_to, specs, **kwargs):
-        tour_id, stop_ids = _make_tour(session, date_from, date_to, specs, **kwargs)
+        tour_id, stop_ids, store_ids = _make_tour(
+            session, date_from, date_to, specs, **kwargs
+        )
         created_tours.append(tour_id)
+        created_stores.extend(store_ids)
         return tour_id, stop_ids
 
     yield session, factory
@@ -108,6 +134,8 @@ def db():
     for tid in created_tours:
         session.query(Stop).filter(Stop.tour_id == tid).delete()
         session.query(Tour).filter(Tour.id == tid).delete()
+    if created_stores:
+        session.query(Store).filter(Store.id.in_(created_stores)).delete()
     session.commit()
     session.close()
 
@@ -285,6 +313,72 @@ def test_optimized_mode_never_mixes_far_regions(db):
         assert not (
             ids & leipzig_ids and ids & aachen_ids
         ), f"day {day.date} mixes regions {ids}"
+
+
+# --- store geometry is the only routable truth -------------------------------
+
+
+def test_typoed_claim_routes_to_store_location(db):
+    """A stop whose claimed address is wrong (typo'd PLZ geocoding ~40 km away)
+    must route to the STORE's verified location — the whole point of the
+    refactor: a bad printed row can no longer misroute anyone."""
+    session, factory = db
+    store_coord = (12.3731, 51.3397)  # Leipzig — where the store really is
+    wrong_coord = (12.30, 51.70)  # ~40 km north — where the typo geocoded to
+    specs = [
+        {
+            "service_minutes": 60,
+            "closing_time": None,
+            "lon": store_coord[0],
+            "lat": store_coord[1],
+            "claimed_geom": WKTElement(
+                f"POINT({wrong_coord[0]} {wrong_coord[1]})", srid=4326
+            ),
+        },
+        {"service_minutes": 60, "closing_time": None},
+    ]
+    tour_id, stop_ids = factory(MONDAY, FRIDAY, specs)
+
+    seen_coords: list[list] = []
+
+    def capturing_matrix(coords):
+        seen_coords.append(list(coords))
+        return _zero_matrix(coords)
+
+    tour = session.get(Tour, tour_id)
+    result = optimise_tour(
+        session,
+        tour,
+        config=CONFIG,
+        matrix_provider=capturing_matrix,
+        vroom_client=VroomClient(base_url=settings.vroom_url),
+    )
+
+    assert result.unassigned == []
+    routed = {(round(lon, 4), round(lat, 4)) for lon, lat in seen_coords[0]}
+    assert (round(store_coord[0], 4), round(store_coord[1], 4)) in routed
+    assert (round(wrong_coord[0], 4), round(wrong_coord[1], 4)) not in routed
+
+
+def test_store_without_geom_is_unassigned_not_claimed(db):
+    """No silent fallback to the claim: a linked store lacking geometry takes
+    the stop off the plan with an explicit reason."""
+    session, factory = db
+    specs = [
+        {"service_minutes": 60, "closing_time": None},
+        {
+            "service_minutes": 60,
+            "closing_time": None,
+            "store_geom": None,  # store exists but was never geocoded
+            "claimed_geom": WKTElement("POINT(12.40 51.40)", srid=4326),
+        },
+    ]
+    tour_id, stop_ids = factory(MONDAY, FRIDAY, specs)
+
+    result = _optimise(session, tour_id)
+
+    assert [u.stop_id for u in result.unassigned] == [stop_ids[1]]
+    assert result.unassigned[0].reason == REASON_STORE_NOT_GEOCODED
 
 
 def test_optimized_mode_far_region_overflows_to_unassigned(db):

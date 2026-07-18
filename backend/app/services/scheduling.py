@@ -14,10 +14,12 @@ def effective_window(
 ) -> tuple[time, time]:
     """Return the usable [open, close] window for a stop.
 
-    Store hours are clamped to the working window. If a bound is unknown it
-    falls back to the working-window bound, so a stop with no known hours gets
-    the full working window.
+    Hours live on the stop's linked store (read through effective_hours) and
+    are clamped to the working window. If a bound is unknown it falls back to
+    the working-window bound, so a stop with no known hours gets the full
+    working window.
     """
-    open_t = stop.opening_time or working_day_start
-    close_t = stop.closing_time or working_day_end
+    opening, closing = stop.effective_hours
+    open_t = opening or working_day_start
+    close_t = closing or working_day_end
     return (max(open_t, working_day_start), min(close_t, working_day_end))

@@ -96,9 +96,12 @@ def catalog_snapshot():
 def seeded(catalog_snapshot):
     """Two stores and three days of completion history.
 
+    Coordinates live on the stores (0012) — drive legs are measured between
+    store geometries, so every anchoring stop needs a store-linked location.
+
     Day 1: B done 08:00 (seq 1), A done 09:10 (seq 2)
             -> A observes 4200 - 600 = 3600 s (60 min)
-    Day 2: no-store stop done 08:00 (seq 1), A done 09:20 (seq 2),
+    Day 2: anchor-store stop done 08:00 (seq 1), A done 09:20 (seq 2),
             B done 10:30 (seq 3)
             -> A observes 4800 - 600 = 4200 s (70 min); B observes 60 min once
     Day 3: B done 08:00 (seq 1), A done 10:00 (seq *3*)
@@ -108,25 +111,40 @@ def seeded(catalog_snapshot):
     MIN_SAMPLES -> learned stays null.
     """
     db = SessionLocal()
-    store_a = Store(name="Testmarkt Lernzeit A", postal_code="99101", city="Teststadt")
-    store_b = Store(name="Testmarkt Lernzeit B", postal_code="99102", city="Teststadt")
+    store_a = Store(
+        name="Testmarkt Lernzeit A",
+        postal_code="99101",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.35 51.30)",
+    )
+    store_b = Store(
+        name="Testmarkt Lernzeit B",
+        postal_code="99102",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.50 51.30)",
+    )
+    anchor = Store(
+        name="Testmarkt Lernzeit Anker",
+        postal_code="99109",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.40 51.30)",
+    )
     tour = Tour(
         customer="Aldi Nord",
         calendar_week=27,
         date_from=date(2026, 6, 29),
         date_to=date(2026, 7, 3),
     )
-    db.add_all([store_a, store_b, tour])
+    db.add_all([store_a, store_b, anchor, tour])
     db.flush()
 
-    def stop(row, day, seq, store_id, hour, minute, lon):
+    def stop(row, day, seq, store_id, hour, minute):
         return Stop(
             tour_id=tour.id,
             store_id=store_id,
             row_index=row,
             assigned_day=day,
             sequence=seq,
-            geom=f"SRID=4326;POINT({lon} 51.30)",
             completed_at=datetime(
                 day.year, day.month, day.day, hour, minute, tzinfo=UTC
             ),
@@ -135,24 +153,24 @@ def seeded(catalog_snapshot):
     day1, day2, day3 = date(2026, 6, 29), date(2026, 6, 30), date(2026, 7, 1)
     db.add_all(
         [
-            stop(0, day1, 1, store_b.id, 8, 0, 12.30),
-            stop(1, day1, 2, store_a.id, 9, 10, 12.35),
-            stop(2, day2, 1, None, 8, 0, 12.40),
-            stop(3, day2, 2, store_a.id, 9, 20, 12.45),
-            stop(4, day2, 3, store_b.id, 10, 30, 12.50),
-            stop(5, day3, 1, store_b.id, 8, 0, 12.55),
-            stop(6, day3, 3, store_a.id, 10, 0, 12.60),
+            stop(0, day1, 1, store_b.id, 8, 0),
+            stop(1, day1, 2, store_a.id, 9, 10),
+            stop(2, day2, 1, anchor.id, 8, 0),
+            stop(3, day2, 2, store_a.id, 9, 20),
+            stop(4, day2, 3, store_b.id, 10, 30),
+            stop(5, day3, 1, store_b.id, 8, 0),
+            stop(6, day3, 3, store_a.id, 10, 0),
         ]
     )
     db.commit()
-    ids = (store_a.id, store_b.id, tour.id)
+    ids = (store_a.id, store_b.id, tour.id, anchor.id)
     db.close()
 
-    yield ids
+    yield ids[:3]
 
     db = SessionLocal()
     db.query(Tour).filter(Tour.id == ids[2]).delete()  # cascades to the stops
-    db.query(Store).filter(Store.id.in_(ids[:2])).delete()
+    db.query(Store).filter(Store.id.in_([ids[0], ids[1], ids[3]])).delete()
     db.commit()
     db.close()
 
@@ -204,7 +222,7 @@ def test_offline_sync_bursts_are_not_observations(seeded):
     db = SessionLocal()
     day = date(2026, 7, 2)
     base = datetime(2026, 7, 2, 16, 0, tzinfo=UTC)
-    for seq, lon in [(1, 12.70), (2, 12.75)]:
+    for seq in (1, 2):
         db.add(
             Stop(
                 tour_id=tour_id,
@@ -212,7 +230,6 @@ def test_offline_sync_bursts_are_not_observations(seeded):
                 row_index=6 + seq,
                 assigned_day=day,
                 sequence=seq,
-                geom=f"SRID=4326;POINT({lon} 51.30)",
                 completed_at=base.replace(second=seq * 15),
             )
         )
@@ -255,7 +272,18 @@ def two_profiles(catalog_snapshot):
     store-wide median (the unmatched-profile fallback) is 120.
     """
     db = SessionLocal()
-    store = Store(name="Testmarkt Lernzeit C", postal_code="99103", city="Teststadt")
+    store = Store(
+        name="Testmarkt Lernzeit C",
+        postal_code="99103",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.25 51.30)",
+    )
+    anchor_store = Store(
+        name="Testmarkt Lernzeit C-Anker",
+        postal_code="99108",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.20 51.30)",
+    )
     tour = Tour(
         customer="Aldi Nord",
         calendar_week=28,
@@ -263,7 +291,7 @@ def two_profiles(catalog_snapshot):
         date_to=date(2026, 7, 10),
         employee="Team Nord",
     )
-    db.add_all([store, tour])
+    db.add_all([store, anchor_store, tour])
     db.flush()
 
     visits = [  # (day, service task label, completion minutes after 08:00)
@@ -275,10 +303,10 @@ def two_profiles(catalog_snapshot):
     for row, (day, label, minutes) in enumerate(visits):
         anchor = Stop(
             tour_id=tour.id,
+            store_id=anchor_store.id,
             row_index=row * 2,
             assigned_day=day,
             sequence=1,
-            geom="SRID=4326;POINT(12.20 51.30)",
             completed_at=datetime(day.year, day.month, day.day, 8, 0, tzinfo=UTC),
         )
         visit = Stop(
@@ -287,7 +315,6 @@ def two_profiles(catalog_snapshot):
             row_index=row * 2 + 1,
             assigned_day=day,
             sequence=2,
-            geom="SRID=4326;POINT(12.25 51.30)",
             completed_at=datetime(day.year, day.month, day.day, 8, 0, tzinfo=UTC)
             + timedelta(minutes=minutes),
         )
@@ -295,14 +322,14 @@ def two_profiles(catalog_snapshot):
         db.flush()
         db.add(Task(stop_id=visit.id, task_type=label, raw_label=label))
     db.commit()
-    ids = (store.id, tour.id)
+    ids = (store.id, tour.id, anchor_store.id)
     db.close()
 
-    yield ids
+    yield ids[:2]
 
     db = SessionLocal()
     db.query(Tour).filter(Tour.id == ids[1]).delete()  # cascades to the stops
-    db.query(Store).filter(Store.id == ids[0]).delete()  # cascades to profiles
+    db.query(Store).filter(Store.id.in_([ids[0], ids[2]])).delete()
     db.commit()
     db.close()
 
