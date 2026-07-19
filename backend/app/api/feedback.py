@@ -20,7 +20,7 @@ from app.config import settings
 from app.db import get_db
 from app.models.stop import Stop
 from app.models.user import Role
-from app.models.visit_feedback import VisitFeedback
+from app.models.visit_feedback import VisitFeedback, dedupe_feedback
 from app.schemas.feedback import FeedbackCreate, FeedbackRead, PhotoUploadResult
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
@@ -132,13 +132,4 @@ def list_feedback(
     if not include_demo:
         query = query.where(VisitFeedback.is_demo.is_(False))
     query = query.order_by(VisitFeedback.created_at.desc(), VisitFeedback.id.desc())
-
-    rows: list[VisitFeedback] = []
-    seen: set[tuple] = set()
-    for row in db.scalars(query):
-        key = (row.store_id, row.employee, row.note, row.created_at)
-        if key in seen:
-            continue
-        seen.add(key)
-        rows.append(row)
-    return rows
+    return dedupe_feedback(db.scalars(query))

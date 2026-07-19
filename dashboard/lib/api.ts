@@ -417,15 +417,22 @@ export const api = {
     const qs = q.toString();
     return request<Store[]>(`/stores${qs ? `?${qs}` : ""}`);
   },
-  getStore: (id: number) => request<Store>(`/stores/${id}`),
+  getStore: (id: number, includeDemo?: boolean) =>
+    request<Store>(`/stores/${id}${includeDemo ? "?include_demo=true" : ""}`),
   recomputeServiceTimes: () =>
     request<StoreServiceTime[]>("/stores/service-times/recompute", {
       method: "POST",
     }),
   suggestStops: (q: string) =>
     request<StopSuggestion[]>(`/stores/suggest?q=${encodeURIComponent(q)}`),
-  storeVisits: (id: number) => request<StoreVisit[]>(`/stores/${id}/visits`),
-  storeFeedback: (id: number) => request<Feedback[]>(`/stores/${id}/feedback`),
+  storeVisits: (id: number, includeDemo?: boolean) =>
+    request<StoreVisit[]>(
+      `/stores/${id}/visits${includeDemo ? "?include_demo=true" : ""}`,
+    ),
+  storeFeedback: (id: number, includeDemo?: boolean) =>
+    request<Feedback[]>(
+      `/stores/${id}/feedback${includeDemo ? "?include_demo=true" : ""}`,
+    ),
   updateStoreAttributes: (
     id: number,
     body: {

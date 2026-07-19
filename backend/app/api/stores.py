@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import String, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import CurrentUser, require_role, worker_services_store
 from app.db import get_db
@@ -11,7 +11,7 @@ from app.models.stop import Stop
 from app.models.store import Store
 from app.models.tour import Tour
 from app.models.user import Role, User
-from app.models.visit_feedback import VisitFeedback
+from app.models.visit_feedback import VisitFeedback, dedupe_feedback
 from app.schemas.feedback import FeedbackRead
 from app.schemas.store import (
     ServiceProfileTimeRead,
@@ -269,18 +269,24 @@ def get_store(
 def store_visits(
     store_id: int,
     db: Annotated[Session, Depends(get_db)],
+    include_demo: bool = False,
 ) -> list[StoreVisit]:
     """Every stop ever linked to this store, newest first — the office's
-    visit history with predicted ETA vs. actual completion."""
+    visit history with predicted ETA vs. actual completion. Demo/seeded
+    visits are excluded unless include_demo is set."""
     if db.get(Store, store_id) is None:
         raise HTTPException(status_code=404, detail="store not found")
 
-    rows = db.execute(
+    query = (
         select(Stop, Tour, ServiceRecord)
         .join(Tour, Stop.tour_id == Tour.id)
         .outerjoin(ServiceRecord, ServiceRecord.stop_id == Stop.id)
         .where(Stop.store_id == store_id)
-        .order_by(
+    )
+    if not include_demo:
+        query = query.where(Stop.is_demo.is_(False))
+    rows = db.execute(
+        query.order_by(
             func.coalesce(Stop.assigned_day, Stop.date).desc().nulls_last(),
             Stop.id.desc(),
         )
@@ -310,20 +316,26 @@ def store_feedback(
     store_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: CurrentUser,
+    include_demo: bool = False,
 ) -> list[VisitFeedback]:
     """The store's full visit-feedback history, newest first (mobile detail
     view + dashboard). Feedback is append-only — no edit/delete anywhere; a
-    wrong store *fact* is fixed via PATCH /stores/{id}/attributes instead."""
+    wrong store *fact* is fixed via PATCH /stores/{id}/attributes instead.
+
+    Demo/seeded rows are excluded unless include_demo is set; exact
+    duplicates collapse to a single entry."""
     if db.get(Store, store_id) is None:
         raise HTTPException(status_code=404, detail="store not found")
     _ensure_store_visible(db, user, store_id)
-    return list(
-        db.scalars(
-            select(VisitFeedback)
-            .where(VisitFeedback.store_id == store_id)
-            .order_by(VisitFeedback.created_at.desc(), VisitFeedback.id.desc())
-        )
+    query = (
+        select(VisitFeedback)
+        .options(selectinload(VisitFeedback.store))
+        .where(VisitFeedback.store_id == store_id)
+        .order_by(VisitFeedback.created_at.desc(), VisitFeedback.id.desc())
     )
+    if not include_demo:
+        query = query.where(VisitFeedback.is_demo.is_(False))
+    return dedupe_feedback(db.scalars(query))
 
 
 @router.patch("/{store_id}/attributes", response_model=StoreRead)

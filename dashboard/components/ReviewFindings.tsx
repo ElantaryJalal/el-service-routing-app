@@ -127,7 +127,7 @@ export default function ReviewFindings({ stops, readOnly, onResolved }: Props) {
             {candidates.map((s) => (
               <div key={s.id}>
                 <Link href={`/stores/${s.store_id}`}>
-                  {s.customer ?? `#${s.id}`}
+                  {s.customer ?? "unknown store"}
                 </Link>{" "}
                 <span className="muted small">
                   ({s.store_address_provenance})

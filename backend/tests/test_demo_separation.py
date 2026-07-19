@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from app.db import SessionLocal, engine
 from app.main import app
+from app.models.stop import Stop
 from app.models.store import Store
 from app.models.tour import Tour, TourStatus
 from app.models.visit_feedback import VisitFeedback
@@ -55,6 +56,13 @@ def world():
     )
     db.add_all([store, real, demo])
     db.flush()
+    # One real and one demo visit to the store (stops cascade with the tours).
+    db.add_all(
+        [
+            Stop(tour_id=real.id, row_index=0, store_id=store.id),
+            Stop(tour_id=demo.id, row_index=0, store_id=store.id, is_demo=True),
+        ]
+    )
 
     def note(uuid, text, is_demo=False, created=STAMP):
         return VisitFeedback(
@@ -111,6 +119,34 @@ def test_feedback_excludes_demo_dedupes_and_names_stores(world):
     ).json()
     assert "Parkplatz eng (Demo)" in [r["note"] for r in rows]
     assert len(rows) == 3
+
+
+def test_store_feedback_excludes_demo_and_dedupes(world):
+    store_id, _, _ = world
+
+    rows = client.get(f"/stores/{store_id}/feedback").json()
+    notes = [r["note"] for r in rows]
+    assert "Parkplatz eng (Demo)" not in notes
+    assert notes.count("Kühlregal defekt") == 1
+    assert len(rows) == 2
+
+    rows = client.get(
+        f"/stores/{store_id}/feedback", params={"include_demo": True}
+    ).json()
+    assert "Parkplatz eng (Demo)" in [r["note"] for r in rows]
+    assert len(rows) == 3
+
+
+def test_store_visits_exclude_demo_stops(world):
+    store_id, real_tour_id, demo_tour_id = world
+
+    rows = client.get(f"/stores/{store_id}/visits").json()
+    assert [r["tour_id"] for r in rows] == [real_tour_id]
+
+    rows = client.get(
+        f"/stores/{store_id}/visits", params={"include_demo": True}
+    ).json()
+    assert sorted(r["tour_id"] for r in rows) == sorted([real_tour_id, demo_tour_id])
 
 
 def test_overview_excludes_demo_tours(world):

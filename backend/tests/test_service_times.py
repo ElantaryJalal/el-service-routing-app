@@ -52,6 +52,7 @@ _LEDGER_FIELDS = (
     "task_signature",
     "tasks_label",
     "duration_minutes",
+    "is_demo",
 )
 
 
@@ -196,6 +197,27 @@ def test_recompute_learns_median_and_respects_min_samples(seeded):
     assert store_a.learned_service_minutes == 65
     assert store_a.service_time_samples == 2
     assert store_a.service_times_updated_at is not None
+    db.close()
+
+
+def test_recompute_carries_stop_is_demo(seeded):
+    """A rebuild must never launder demo history into real-looking ledger
+    rows (this happened once: a recompute through a pre-flag server washed
+    out the migration's backfill)."""
+    store_a_id, store_b_id, tour_id = seeded
+
+    db = SessionLocal()
+    db.query(Stop).filter(Stop.tour_id == tour_id).update({"is_demo": True})
+    db.commit()
+
+    recompute_service_times(db, matrix_provider=_fake_matrix)
+    records = (
+        db.query(ServiceRecord)
+        .filter(ServiceRecord.store_id.in_([store_a_id, store_b_id]))
+        .all()
+    )
+    assert records
+    assert all(r.is_demo for r in records)
     db.close()
 
 

@@ -1,4 +1,5 @@
 import enum
+from collections.abc import Iterable
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, text
@@ -71,3 +72,18 @@ class VisitFeedback(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+def dedupe_feedback(rows: Iterable[VisitFeedback]) -> list[VisitFeedback]:
+    """Collapse exact duplicates — same store, author, note text, and
+    timestamp — to a single entry (offline-sync retries and seed scripts
+    produce them)."""
+    unique: list[VisitFeedback] = []
+    seen: set[tuple] = set()
+    for row in rows:
+        key = (row.store_id, row.employee, row.note, row.created_at)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(row)
+    return unique

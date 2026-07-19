@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import ProvenanceBadge from "@/components/ProvenanceBadge";
 import { Protected, useAuth } from "@/lib/auth";
 import {
@@ -26,6 +27,7 @@ function StoreDetailPage() {
   const storeId = Number(params.id);
   const { user } = useAuth();
   const readOnly = user?.role === "manager";
+  const showDemo = useShowDemo();
 
   const [store, setStore] = useState<Store | null>(null);
   const [visits, setVisits] = useState<StoreVisit[]>([]);
@@ -34,10 +36,13 @@ function StoreDetailPage() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(() => {
-    api.getStore(storeId).then(setStore).catch((e) => setError(String(e.message ?? e)));
-    api.storeVisits(storeId).then(setVisits).catch(() => setVisits([]));
-    api.storeFeedback(storeId).then(setFeedback).catch(() => setFeedback([]));
-  }, [storeId]);
+    api
+      .getStore(storeId, showDemo)
+      .then(setStore)
+      .catch((e) => setError(String(e.message ?? e)));
+    api.storeVisits(storeId, showDemo).then(setVisits).catch(() => setVisits([]));
+    api.storeFeedback(storeId, showDemo).then(setFeedback).catch(() => setFeedback([]));
+  }, [storeId, showDemo]);
 
   useEffect(load, [load]);
 
@@ -83,19 +88,21 @@ function StoreDetailPage() {
       <div className="page-head">
         <div>
           <div className="small" style={{ marginBottom: 2 }}>
-            <Link href="/stores">Stores</Link>{" "}
-            <span className="muted">/ #{store.id}</span>
+            <Link href="/stores">Stores</Link>
           </div>
           <h1>{store.name}</h1>
           <div className="muted small">
             {address || "no address"} <ProvenanceBadge store={store} />
           </div>
         </div>
-        {store.attributes_complete ? (
-          <span className="badge badge-done">facts complete</span>
-        ) : (
-          <span className="badge badge-in_progress">facts missing</span>
-        )}
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <DemoToggle />
+          {store.attributes_complete ? (
+            <span className="badge badge-done">facts complete</span>
+          ) : (
+            <span className="badge badge-in_progress">facts missing</span>
+          )}
+        </div>
       </div>
 
       {error && <div className="banner banner-error">{error}</div>}
