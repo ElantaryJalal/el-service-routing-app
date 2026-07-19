@@ -25,6 +25,8 @@ import {
 import { draftStore } from '../src/state/draftStore';
 import { DraftStopCard } from '../src/components/DraftStopCard';
 
+import { color as tk } from '../src/theme';
+
 type Load =
   | { state: 'loading' }
   | { state: 'ready'; draft: TourDraft }
@@ -177,7 +179,7 @@ export default function ConfirmScreen() {
           disabled={committing || stops.length === 0}
         >
           {committing ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={tk.onBrand} />
           ) : (
             <Text style={styles.buttonText}>Commit tour</Text>
           )}
@@ -244,44 +246,44 @@ const styles = StyleSheet.create({
   container: { padding: 16, gap: 14, paddingBottom: 24 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   title: { fontSize: 24, fontWeight: '700' },
-  subtitle: { fontSize: 14, color: '#555' },
-  muted: { fontSize: 15, color: '#555' },
+  subtitle: { fontSize: 14, color: tk.textMuted },
+  muted: { fontSize: 15, color: tk.textMuted },
   photo: {
     width: '100%',
     height: 200,
     borderRadius: 10,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: tk.soft,
   },
   footer: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
-    backgroundColor: '#fff',
+    borderTopColor: tk.border,
+    backgroundColor: tk.surface,
   },
   button: {
-    backgroundColor: '#1f6feb',
+    backgroundColor: tk.brand,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  errorText: { fontSize: 15, color: '#b00020', textAlign: 'center' },
+  buttonText: { color: tk.onBrand, fontWeight: '700', fontSize: 16 },
+  errorText: { fontSize: 15, color: tk.danger, textAlign: 'center' },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: '#00000088',
+    backgroundColor: tk.scrim,
     justifyContent: 'center',
     padding: 20,
   },
   modalCard: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 14,
     padding: 20,
     gap: 12,
     maxHeight: '80%',
   },
   modalTitle: { fontSize: 20, fontWeight: '700' },
-  modalSubtitle: { fontSize: 14, color: '#555' },
+  modalSubtitle: { fontSize: 14, color: tk.textMuted },
   modalList: { flexGrow: 0 },
   dupeRow: {
     flexDirection: 'row',
@@ -289,17 +291,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: tk.border,
     gap: 8,
   },
   dupeInfo: { flex: 1 },
   dupeLabel: { fontSize: 15, fontWeight: '600' },
-  dupeCount: { fontSize: 13, color: '#777' },
-  toggle: { flexDirection: 'row', borderWidth: 1, borderColor: '#1f6feb', borderRadius: 8, overflow: 'hidden' },
+  dupeCount: { fontSize: 13, color: tk.textMuted },
+  toggle: { flexDirection: 'row', borderWidth: 1, borderColor: tk.brand, borderRadius: 8, overflow: 'hidden' },
   toggleBtn: { paddingVertical: 8, paddingHorizontal: 14 },
-  toggleBtnActive: { backgroundColor: '#1f6feb' },
-  toggleText: { color: '#1f6feb', fontWeight: '600' },
-  toggleTextActive: { color: '#fff' },
+  toggleBtnActive: { backgroundColor: tk.brand },
+  toggleText: { color: tk.brand, fontWeight: '600' },
+  toggleTextActive: { color: tk.onBrand },
   linkBtn: { alignItems: 'center', paddingVertical: 6 },
-  linkText: { color: '#1f6feb', fontSize: 15 },
+  linkText: { color: tk.brand, fontSize: 15 },
 });

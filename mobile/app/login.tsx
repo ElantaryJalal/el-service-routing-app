@@ -1,18 +1,17 @@
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
 import { ApiError, api } from '../src/api/client';
+import { Button, Input } from '../src/components/ui';
 import { outbox } from '../src/state/outbox';
 import { session } from '../src/state/session';
+import { color, font, space } from '../src/theme';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -47,8 +46,7 @@ export default function LoginScreen() {
         <Text style={styles.title}>EL Service</Text>
         <Text style={styles.subtitle}>Sign in to see your tours.</Text>
 
-        <TextInput
-          style={styles.input}
+        <Input
           placeholder="Email"
           autoCapitalize="none"
           autoComplete="email"
@@ -57,8 +55,7 @@ export default function LoginScreen() {
           onChangeText={setEmail}
           editable={!busy}
         />
-        <TextInput
-          style={styles.input}
+        <Input
           placeholder="Password"
           secureTextEntry
           autoComplete="password"
@@ -70,17 +67,13 @@ export default function LoginScreen() {
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <Pressable
-          style={[styles.button, !canSubmit && styles.buttonDisabled]}
+        <Button
+          title="Sign in"
+          variant="primary"
           onPress={submit}
           disabled={!canSubmit}
-        >
-          {busy ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign in</Text>
-          )}
-        </Pressable>
+          loading={busy}
+        />
       </View>
     </KeyboardAvoidingView>
   );
@@ -90,34 +83,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     justifyContent: 'center',
-    padding: 24,
-    backgroundColor: '#f6f8fa',
+    padding: space.s6,
+    backgroundColor: color.bg,
   },
-  card: { gap: 12 },
-  title: { fontSize: 32, fontWeight: '700', textAlign: 'center' },
-  subtitle: {
-    fontSize: 15,
-    color: '#555',
+  card: { gap: space.s1 },
+  title: {
+    fontSize: font.size.kpi,
+    fontWeight: font.weight.bold,
     textAlign: 'center',
-    marginBottom: 12,
+    color: color.text,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#d0d7de',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    backgroundColor: '#fff',
+  subtitle: {
+    fontSize: font.size.md,
+    color: color.textMuted,
+    textAlign: 'center',
+    marginBottom: space.s3,
   },
-  error: { color: '#b00020', fontSize: 14, textAlign: 'center' },
-  button: {
-    backgroundColor: '#1f6feb',
-    paddingVertical: 14,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 4,
+  error: {
+    color: color.danger,
+    fontSize: font.size.base,
+    textAlign: 'center',
+    marginBottom: space.s2,
   },
-  buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
 });

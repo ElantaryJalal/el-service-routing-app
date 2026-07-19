@@ -12,7 +12,6 @@
  */
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Image,
   Modal,
   Pressable,
@@ -29,6 +28,9 @@ import { FEEDBACK_TAGS } from '../domain/feedbackTags';
 import type { OptimisedStop } from '../domain/optimisedTour';
 import { uuidv4 } from '../domain/uuid';
 import { outbox } from '../state/outbox';
+import { Button, SyncState } from './ui';
+
+import { color as tk } from '../theme';
 
 /** How the tier-1 completion call went (owned by the opener). */
 export type CompletionSync = 'pending' | 'done' | 'queued';
@@ -153,13 +155,18 @@ export function CompletionSheet({
                 <Text style={styles.title}>
                   ✓ {stop.customer ?? `Stop ${stop.stop_id}`}
                 </Text>
-                <Text style={styles.syncText}>
-                  {sync === 'queued'
-                    ? 'Saved on this phone — will sync when online.'
-                    : sync === 'pending'
-                      ? 'Marking done…'
-                      : 'Marked done.'}
-                </Text>
+                <View style={styles.syncRow}>
+                  {sync === 'queued' ? (
+                    <SyncState
+                      state="pending"
+                      label="Saved on this phone — will sync when online."
+                    />
+                  ) : sync === 'pending' ? (
+                    <SyncState state="pending" label="Marking done…" />
+                  ) : (
+                    <SyncState state="synced" label="Marked done." />
+                  )}
+                </View>
               </View>
               <Pressable onPress={onClose} hitSlop={10}>
                 <Text style={styles.close}>✕</Text>
@@ -217,23 +224,19 @@ export function CompletionSheet({
                 {attrError && <Text style={styles.error}>{attrError}</Text>}
 
                 <View style={styles.actionRow}>
-                  <Pressable
-                    style={[styles.primary, (!attrDirty || attrPhase === 'saving') && styles.disabled]}
-                    disabled={!attrDirty || attrPhase === 'saving'}
+                  <Button
+                    title="Save"
+                    variant="primary"
+                    disabled={!attrDirty}
+                    loading={attrPhase === 'saving'}
                     onPress={saveAttributes}
-                  >
-                    {attrPhase === 'saving' ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.primaryText}>Save</Text>
-                    )}
-                  </Pressable>
-                  <Pressable
-                    style={styles.secondary}
+                    style={styles.flex}
+                  />
+                  <Button
+                    title="Skip"
+                    variant="ghost"
                     onPress={() => setAttrPhase('skipped')}
-                  >
-                    <Text style={styles.secondaryText}>Skip</Text>
-                  </Pressable>
+                  />
                 </View>
               </View>
             )}
@@ -283,7 +286,7 @@ export function CompletionSheet({
                 <TextInput
                   style={styles.noteInput}
                   placeholder="Note (optional)"
-                  placeholderTextColor="#999"
+                  placeholderTextColor={tk.textFaint}
                   value={note}
                   onChangeText={setNote}
                   multiline
@@ -303,26 +306,17 @@ export function CompletionSheet({
                 )}
 
                 {feedbackError && <Text style={styles.error}>{feedbackError}</Text>}
-                <Pressable
-                  style={[
-                    styles.primary,
-                    (!feedbackDirty || feedbackPhase === 'sending') && styles.disabled,
-                  ]}
-                  disabled={!feedbackDirty || feedbackPhase === 'sending'}
+                <Button
+                  title="Send feedback"
+                  variant="primary"
+                  disabled={!feedbackDirty}
+                  loading={feedbackPhase === 'sending'}
                   onPress={sendFeedback}
-                >
-                  {feedbackPhase === 'sending' ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.primaryText}>Send feedback</Text>
-                  )}
-                </Pressable>
+                />
               </View>
             )}
 
-            <Pressable style={styles.doneButton} onPress={onClose}>
-              <Text style={styles.doneButtonText}>Done</Text>
-            </Pressable>
+            <Button title="Done" onPress={onClose} />
           </ScrollView>
         </View>
       </View>
@@ -353,97 +347,71 @@ function OptionButton({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backdrop: { flex: 1, backgroundColor: '#00000088', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     maxHeight: '85%',
   },
   content: { padding: 20, gap: 14 },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  title: { fontSize: 19, fontWeight: '700', color: '#1a7f37' },
-  syncText: { fontSize: 13, color: '#666', marginTop: 2 },
-  close: { fontSize: 18, color: '#999', paddingHorizontal: 4 },
+  syncRow: { marginTop: 6, alignItems: 'flex-start' },
+  title: { fontSize: 19, fontWeight: '700', color: tk.status.done },
+  close: { fontSize: 18, color: tk.textFaint, paddingHorizontal: 4 },
 
   section: {
-    backgroundColor: '#f7f9fc',
+    backgroundColor: tk.bg,
     borderRadius: 12,
     padding: 14,
     gap: 8,
   },
   sectionTitle: { fontSize: 15, fontWeight: '700' },
-  sectionHint: { fontSize: 12, color: '#777' },
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: '#444', marginTop: 4 },
+  sectionHint: { fontSize: 12, color: tk.textMuted },
+  fieldLabel: { fontSize: 13, fontWeight: '600', color: tk.text, marginTop: 4 },
   optionRow: { flexDirection: 'row', gap: 8 },
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   option: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 16,
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: tk.borderStrong,
   },
-  optionActive: { backgroundColor: '#1f6feb', borderColor: '#1f6feb' },
-  optionText: { fontWeight: '600', color: '#333', fontSize: 14 },
-  optionTextActive: { color: '#fff' },
+  optionActive: { backgroundColor: tk.brand, borderColor: tk.brand },
+  optionText: { fontWeight: '600', color: tk.text, fontSize: 14 },
+  optionTextActive: { color: tk.onBrand },
 
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 6 },
-  primary: {
-    backgroundColor: '#1f6feb',
-    borderRadius: 8,
-    paddingVertical: 11,
-    paddingHorizontal: 22,
-    alignItems: 'center',
-    minWidth: 100,
-  },
-  primaryText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  secondary: {
-    borderRadius: 8,
-    paddingVertical: 11,
-    paddingHorizontal: 22,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-  secondaryText: { color: '#555', fontWeight: '600', fontSize: 15 },
-  disabled: { opacity: 0.45 },
-  error: { color: '#b00020', fontSize: 13 },
-  savedNote: { color: '#1a7f37', fontSize: 14, fontWeight: '600' },
+  error: { color: tk.danger, fontSize: 13 },
+  savedNote: { color: tk.status.done, fontSize: 14, fontWeight: '600' },
 
   feedbackToggle: { paddingVertical: 4 },
-  feedbackToggleText: { color: '#1f6feb', fontWeight: '600', fontSize: 14 },
+  feedbackToggleText: { color: tk.brand, fontWeight: '600', fontSize: 14 },
   photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  photoThumb: { width: 72, height: 72, borderRadius: 8, backgroundColor: '#eee' },
-  photoRemove: { color: '#b00020', fontWeight: '600', fontSize: 13 },
+  photoThumb: { width: 72, height: 72, borderRadius: 8, backgroundColor: tk.border },
+  photoRemove: { color: tk.danger, fontWeight: '600', fontSize: 13 },
   photoButton: {
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: tk.borderStrong,
     borderRadius: 8,
     paddingVertical: 8,
     paddingHorizontal: 14,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
   },
-  photoButtonText: { color: '#333', fontWeight: '600', fontSize: 14 },
+  photoButtonText: { color: tk.text, fontWeight: '600', fontSize: 14 },
   noteInput: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: tk.borderStrong,
     borderRadius: 8,
     padding: 10,
     minHeight: 60,
     fontSize: 14,
-    color: '#222',
+    color: tk.text,
     textAlignVertical: 'top',
   },
 
-  doneButton: {
-    backgroundColor: '#1a7f37',
-    paddingVertical: 13,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  doneButtonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });

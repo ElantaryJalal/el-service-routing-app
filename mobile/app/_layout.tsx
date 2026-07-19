@@ -9,6 +9,8 @@ import {
 } from '../src/notifications';
 import { session, useSession } from '../src/state/session';
 
+import { color as tk } from '../src/theme';
+
 function SignOutButton() {
   return (
     <Pressable
@@ -19,7 +21,7 @@ function SignOutButton() {
       }
       hitSlop={8}
     >
-      <Text style={{ color: '#1f6feb', fontWeight: '600', fontSize: 15 }}>
+      <Text style={{ color: tk.brand, fontWeight: '600', fontSize: 15 }}>
         Sign out
       </Text>
     </Pressable>

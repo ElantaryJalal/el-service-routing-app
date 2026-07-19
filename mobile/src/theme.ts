@@ -44,6 +44,9 @@ export const color = {
   textMuted: gray.g500,
   textFaint: gray.g400, // placeholders, disabled
 
+  soft: gray.g100, // chip/soft fills
+  scrim: '#00000088', // modal/sheet backdrop
+
   /* the ONE brand accent */
   brand: blue.b800,
   brandHover: blue.b900,

@@ -16,6 +16,8 @@ import { ReviewStopCard } from '../src/components/ReviewStopCard';
 import { composeOptimisedTour } from '../src/domain/optimisedTour';
 import { tourCache } from '../src/state/tourCache';
 
+import { color as tk } from '../src/theme';
+
 type StopUpdate = components['schemas']['StopUpdate'];
 
 type Load =
@@ -142,7 +144,7 @@ export default function ReviewScreen() {
           disabled={optimising || stops.length === 0}
         >
           {optimising ? (
-            <ActivityIndicator color="#fff" />
+            <ActivityIndicator color={tk.onBrand} />
           ) : (
             <Text style={styles.buttonText}>Optimise route</Text>
           )}
@@ -157,21 +159,21 @@ const styles = StyleSheet.create({
   container: { padding: 16, gap: 12, paddingBottom: 24 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   title: { fontSize: 24, fontWeight: '700' },
-  subtitle: { fontSize: 14, color: '#555' },
-  muted: { fontSize: 15, color: '#555' },
+  subtitle: { fontSize: 14, color: tk.textMuted },
+  muted: { fontSize: 15, color: tk.textMuted },
   footer: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: '#eee',
-    backgroundColor: '#fff',
+    borderTopColor: tk.border,
+    backgroundColor: tk.surface,
   },
   button: {
-    backgroundColor: '#1f6feb',
+    backgroundColor: tk.brand,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  errorText: { fontSize: 15, color: '#b00020', textAlign: 'center' },
+  buttonText: { color: tk.onBrand, fontWeight: '700', fontSize: 16 },
+  errorText: { fontSize: 15, color: tk.danger, textAlign: 'center' },
 });

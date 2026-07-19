@@ -18,6 +18,8 @@ import {
 import { ApiError, api, type FeedbackRead } from '../api/client';
 import { FeedbackEntry } from './FeedbackEntry';
 
+import { color as tk } from '../theme';
+
 type State =
   | { status: 'loading' }
   | { status: 'ready'; rows: FeedbackRead[] }
@@ -90,9 +92,9 @@ export function FeedbackHistorySheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: '#00000088', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -101,9 +103,9 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 18, fontWeight: '700', flex: 1 },
-  close: { fontSize: 18, color: '#999', paddingHorizontal: 4 },
+  close: { fontSize: 18, color: tk.textFaint, paddingHorizontal: 4 },
   centered: { alignItems: 'center', gap: 8, paddingVertical: 24 },
-  error: { color: '#b00020', fontSize: 14, textAlign: 'center' },
-  muted: { color: '#777', fontSize: 14 },
+  error: { color: tk.danger, fontSize: 14, textAlign: 'center' },
+  muted: { color: tk.textMuted, fontSize: 14 },
   list: { gap: 4 },
 });

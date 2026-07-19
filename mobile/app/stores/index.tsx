@@ -16,6 +16,8 @@ import { router } from 'expo-router';
 
 import { ApiError, api, type StoreRead } from '../../src/api/client';
 
+import { color as tk } from '../../src/theme';
+
 type Load =
   | { state: 'loading' }
   | { state: 'ready'; stores: StoreRead[] }
@@ -113,7 +115,7 @@ export default function StoresScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  error: { color: '#b00020', fontSize: 15, textAlign: 'center' },
+  error: { color: tk.danger, fontSize: 15, textAlign: 'center' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -127,32 +129,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#fff',
+    borderColor: tk.border,
+    backgroundColor: tk.surface,
   },
-  filterChipActive: { backgroundColor: '#b45309', borderColor: '#b45309' },
-  filterText: { fontWeight: '600', color: '#333', fontSize: 13 },
-  filterTextActive: { color: '#fff' },
+  filterChipActive: { backgroundColor: tk.warning, borderColor: tk.warning },
+  filterText: { fontWeight: '600', color: tk.text, fontSize: 13 },
+  filterTextActive: { color: tk.onBrand },
   list: { paddingHorizontal: 16, paddingBottom: 24 },
-  count: { color: '#777', fontSize: 13, marginBottom: 8 },
+  count: { color: tk.textMuted, fontSize: 13, marginBottom: 8 },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: tk.border,
   },
   name: { fontSize: 16, fontWeight: '600' },
-  address: { fontSize: 13, color: '#777', marginTop: 2 },
-  summary: { fontSize: 12, color: '#1a7f37', fontWeight: '600' },
+  address: { fontSize: 13, color: tk.textMuted, marginTop: 2 },
+  summary: { fontSize: 12, color: tk.status.done, fontWeight: '600' },
   needsBadge: {
-    backgroundColor: '#fff8e8',
-    borderColor: '#f0b429',
+    backgroundColor: tk.warningBg,
+    borderColor: tk.warningBorder,
     borderWidth: 1,
     borderRadius: 8,
     paddingVertical: 4,
     paddingHorizontal: 8,
   },
-  needsBadgeText: { color: '#8a6d00', fontSize: 12, fontWeight: '600' },
+  needsBadgeText: { color: tk.warningText, fontSize: 12, fontWeight: '600' },
 });

@@ -6,6 +6,8 @@
  */
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { color as tk } from '../theme';
+
 export interface DayOption {
   /** ISO date to pick, or null for the destructive "off the plan" row. */
   value: string | null;
@@ -43,7 +45,7 @@ export function DayPickerSheet({
 
           {busy ? (
             <View style={styles.busyRow}>
-              <ActivityIndicator size="small" color="#1f6feb" />
+              <ActivityIndicator size="small" color={tk.brand} />
               <Text style={styles.busyText}>Updating the plan…</Text>
             </View>
           ) : (
@@ -76,9 +78,9 @@ export function DayPickerSheet({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: '#00000088', justifyContent: 'flex-end' },
+  backdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -87,21 +89,21 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: 18, fontWeight: '700', flex: 1 },
-  close: { fontSize: 18, color: '#999', paddingHorizontal: 4 },
-  message: { fontSize: 13, color: '#666' },
+  close: { fontSize: 18, color: tk.textFaint, paddingHorizontal: 4 },
+  message: { fontSize: 13, color: tk.textMuted },
   list: { flexGrow: 0 },
   option: {
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: tk.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
   },
-  optionLabel: { fontSize: 15, fontWeight: '600', color: '#1f6feb' },
-  optionDestructive: { color: '#b00020' },
-  optionCaption: { fontSize: 12, color: '#999' },
+  optionLabel: { fontSize: 15, fontWeight: '600', color: tk.brand },
+  optionDestructive: { color: tk.danger },
+  optionCaption: { fontSize: 12, color: tk.textFaint },
   busyRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 16 },
-  busyText: { fontSize: 14, color: '#555' },
+  busyText: { fontSize: 14, color: tk.textMuted },
 });

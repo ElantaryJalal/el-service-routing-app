@@ -25,6 +25,7 @@ import {
   type CompletionSync,
 } from '../src/components/CompletionSheet';
 import { DateModeControl } from '../src/components/DateModeControl';
+import { SyncState } from '../src/components/ui';
 import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
 import {
@@ -42,7 +43,9 @@ import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
 import { useOutboxStatus } from '../src/state/useOutboxStatus';
 
-const COMPLETED_GREY = '#9aa0a6';
+import { color as tk } from '../src/theme';
+
+const COMPLETED_GREY = tk.textFaint;
 
 type Load =
   | { state: 'loading' }
@@ -105,49 +108,49 @@ function popupHtml(s: OptimisedStop, pendingSync: boolean): string {
   const chips = s.tasks
     .map(
       (t) =>
-        `<span style="background:#eef2f7;border-radius:10px;padding:1px 7px;margin:1px;display:inline-block;font-size:11px">${escapeHtml(t)}</span>`,
+        `<span style="background:${tk.soft};border-radius:10px;padding:1px 7px;margin:1px;display:inline-block;font-size:11px">${escapeHtml(t)}</span>`,
     )
     .join(' ');
   const remarks = s.remarks
-    ? `<div style="background:#fff8e8;border-left:3px solid #f6a609;padding:3px 7px;margin:4px 0;font-size:12px">${escapeHtml(s.remarks)}</div>`
+    ? `<div style="background:${tk.warningBg};border-left:3px solid ${tk.warning};padding:3px 7px;margin:4px 0;font-size:12px">${escapeHtml(s.remarks)}</div>`
     : '';
   const nav = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
-  const etaStyle = urgent ? 'color:#b00020;font-weight:700' : 'font-weight:600';
+  const etaStyle = urgent ? `color:${tk.danger};font-weight:700` : 'font-weight:600';
   return `
     <div style="min-width:180px;font-family:system-ui,sans-serif">
       <div style="font-weight:700;font-size:14px">${escapeHtml(s.customer ?? `Stop ${s.stop_id}`)}</div>
-      ${address ? `<div style="color:#666;font-size:12px;margin-bottom:4px">${address}</div>` : ''}
+      ${address ? `<div style="color:${tk.textMuted};font-size:12px;margin-bottom:4px">${address}</div>` : ''}
       <div style="font-size:12px;margin:2px 0">
         <b>${formatDay(s.assigned_day)}</b> · #${s.sequence} ·
         <span style="${etaStyle}">ETA ${s.eta ? toHHMM(s.eta) : '—'}</span>
         ${s.closing_time ? ` · closes ${toHHMM(s.closing_time)}` : ''}
         ${s.service_minutes != null ? ` · ${s.service_minutes} min` : ''}
       </div>
-      ${urgent ? '<div style="color:#b00020;font-size:11px;font-weight:600">Tight — arrives close to closing.</div>' : ''}
+      ${urgent ? `<div style="color:${tk.danger};font-size:11px;font-weight:600">Tight — arrives close to closing.</div>` : ''}
       ${remarks}
       <div style="margin:4px 0">${chips}</div>
-      ${s.completed_at ? '<div style="color:#1a7f37;font-size:12px;font-weight:600;margin:2px 0">✓ Completed</div>' : ''}
-      ${pendingSync ? '<div style="color:#8a6d00;font-size:12px;font-weight:600;margin:2px 0">⇅ not yet synced</div>' : ''}
+      ${s.completed_at ? `<div style="color:${tk.status.done};font-size:12px;font-weight:600;margin:2px 0">✓ Completed</div>` : ''}
+      ${pendingSync ? `<div style="color:${tk.warningText};font-size:12px;font-weight:600;margin:2px 0">⇅ not yet synced</div>` : ''}
       ${
         s.store_id !== null && s.store_feedback_count > 0
           ? `<button data-action="show-history" type="button"
-               style="background:#eef2f7;color:#1f6feb;border:none;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin:2px 0">
+               style="background:${tk.brandSoft};color:${tk.brand};border:none;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin:2px 0">
                🗒 ${s.store_feedback_count} past note${s.store_feedback_count === 1 ? '' : 's'}
              </button>`
           : ''
       }
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <a href="${nav}" target="_blank" rel="noopener"
-           style="display:inline-block;background:#1f6feb;color:#fff;padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>
+           style="display:inline-block;background:${tk.surface};color:${tk.text};border:1px solid ${tk.borderStrong};padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>
         <button data-action="toggle-complete" type="button"
-                style="background:${s.completed_at ? '#f1f3f5' : '#1a7f37'};color:${s.completed_at ? '#555' : '#fff'};border:1px solid ${s.completed_at ? '#ccc' : '#1a7f37'};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
+                style="background:${s.completed_at ? tk.bg : tk.brand};color:${s.completed_at ? tk.textMuted : tk.onBrand};border:1px solid ${s.completed_at ? tk.borderStrong : tk.brand};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
           ${s.completed_at ? 'Mark as not done' : 'Mark done ✓'}
         </button>
         ${
           s.completed_at
             ? ''
             : `<button data-action="move-stop" type="button"
-                style="background:#f1f3f5;color:#333;border:1px solid #ccc;padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Move day…</button>`
+                style="background:${tk.bg};color:${tk.text};border:1px solid ${tk.borderStrong};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Move day…</button>`
         }
       </div>
     </div>`;
@@ -392,10 +395,10 @@ export default function MapWebScreen() {
           const pendingSync = outboxStatus.pendingStopIds.has(s.stop_id);
           const color = completed ? COMPLETED_GREY : dayColor(s.dayIndex);
           // Amber ring: this stop has writes not yet on the server.
-          const ring = pendingSync ? '#f6a609' : '#fff';
+          const ring = pendingSync ? tk.warning : tk.onBrand;
           const icon = L.divIcon({
             className: '',
-            html: `<div style="background:${color};width:24px;height:24px;border-radius:12px;border:2px solid ${ring};color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4);${completed ? 'opacity:.75' : ''}">${completed ? '✓' : s.sequence}</div>`,
+            html: `<div style="background:${color};width:24px;height:24px;border-radius:12px;border:2px solid ${ring};color:${tk.onBrand};font-weight:700;display:flex;align-items:center;justify-content:center;font-size:12px;box-shadow:0 1px 3px rgba(0,0,0,.4);${completed ? 'opacity:.75' : ''}">${completed ? '✓' : s.sequence}</div>`,
             iconSize: [24, 24],
             iconAnchor: [12, 12],
           });
@@ -545,12 +548,10 @@ export default function MapWebScreen() {
               </View>
             )}
             {outboxStatus.pending > 0 && (
-              <View style={styles.syncPill}>
-                <Text style={styles.syncPillText}>
-                  ⇅ {outboxStatus.pending} change
-                  {outboxStatus.pending === 1 ? '' : 's'} pending sync
-                </Text>
-              </View>
+              <SyncState
+                state="pending"
+                label={`${outboxStatus.pending} change${outboxStatus.pending === 1 ? '' : 's'} pending sync`}
+              />
             )}
           </View>
         </View>
@@ -632,12 +633,12 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   map: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
-  muted: { fontSize: 15, color: '#555', textAlign: 'center' },
-  errorText: { fontSize: 15, color: '#b00020', textAlign: 'center' },
+  muted: { fontSize: 15, color: tk.textMuted, textAlign: 'center' },
+  errorText: { fontSize: 15, color: tk.danger, textAlign: 'center' },
   topOverlay: { position: 'absolute', top: 0, left: 0, right: 0, gap: 8, padding: 12, zIndex: 1000 },
   banner: {
-    backgroundColor: '#fff3cd',
-    borderColor: '#f0b429',
+    backgroundColor: tk.warningBg,
+    borderColor: tk.warningBorder,
     borderWidth: 1,
     borderRadius: 10,
     paddingVertical: 10,
@@ -646,18 +647,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  bannerText: { color: '#7a5b00', fontWeight: '600', fontSize: 14, flex: 1 },
-  bannerLink: { color: '#1f6feb', fontWeight: '700' },
+  bannerText: { color: tk.warningText, fontWeight: '600', fontSize: 14, flex: 1 },
+  bannerLink: { color: tk.brand, fontWeight: '700' },
   unassignedBox: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 10,
     padding: 12,
     gap: 4,
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: tk.border,
   },
-  unassignedRow: { fontSize: 13, color: '#333' },
-  unassignedReason: { color: '#b00020' },
+  unassignedRow: { fontSize: 13, color: tk.text },
+  unassignedReason: { color: tk.danger },
   controlRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -669,47 +670,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
   },
-  replanChipText: { fontWeight: '600', color: '#333', fontSize: 13 },
+  replanChipText: { fontWeight: '600', color: tk.text, fontSize: 13 },
   progressPill: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
   },
-  progressText: { fontWeight: '700', color: '#1a7f37', fontSize: 13 },
+  progressText: { fontWeight: '700', color: tk.status.done, fontSize: 13 },
   pillColumn: { gap: 6, alignItems: 'flex-end' },
-  syncPill: {
-    backgroundColor: '#fff8e8',
-    borderRadius: 18,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#f0b429',
-  },
-  syncPillText: { fontWeight: '700', color: '#8a6d00', fontSize: 13 },
   chips: { gap: 8, paddingRight: 12 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
   },
-  chipActive: { backgroundColor: '#1f6feb', borderColor: '#1f6feb' },
-  chipText: { fontWeight: '600', color: '#333' },
-  chipTextActive: { color: '#fff' },
+  chipActive: { backgroundColor: tk.brand, borderColor: tk.brand },
+  chipText: { fontWeight: '600', color: tk.text },
+  chipTextActive: { color: tk.onBrand },
   chipDot: { width: 10, height: 10, borderRadius: 5 },
 });

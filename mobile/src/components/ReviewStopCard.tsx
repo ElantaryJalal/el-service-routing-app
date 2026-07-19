@@ -4,6 +4,8 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { StopDetail } from '../api/client';
 import type { components } from '../api/types';
 
+import { color as tk } from '../theme';
+
 type StopUpdate = components['schemas']['StopUpdate'];
 
 /** Trim a "HH:MM:SS" backend time to "HH:MM" for display. */
@@ -96,7 +98,7 @@ export function ReviewStopCard({ stop, onPatch }: Props) {
             style={[styles.input, source.tone === 'osm' && styles.inputOsm]}
             value={closing}
             placeholder="HH:MM"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={tk.textFaint}
             keyboardType="numbers-and-punctuation"
             onChangeText={setClosing}
             onEndEditing={commitClosing}
@@ -109,7 +111,7 @@ export function ReviewStopCard({ stop, onPatch }: Props) {
             style={styles.input}
             value={minutes}
             placeholder="min"
-            placeholderTextColor="#aaa"
+            placeholderTextColor={tk.textFaint}
             keyboardType="numeric"
             onChangeText={setMinutes}
             onEndEditing={commitMinutes}
@@ -123,37 +125,37 @@ export function ReviewStopCard({ stop, onPatch }: Props) {
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e2e2',
+    borderColor: tk.border,
     borderRadius: 12,
     padding: 14,
     gap: 6,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
   },
   customer: { fontSize: 16, fontWeight: '700' },
-  address: { fontSize: 13, color: '#666' },
+  address: { fontSize: 13, color: tk.textMuted },
   fields: { flexDirection: 'row', gap: 12, marginTop: 6 },
   field: { flex: 2, gap: 4 },
   fieldNarrow: { flex: 1, gap: 4 },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  label: { fontSize: 13, color: '#666', fontWeight: '600' },
+  label: { fontSize: 13, color: tk.textMuted, fontWeight: '600' },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: tk.borderStrong,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
   },
-  inputOsm: { borderColor: '#f6a609', backgroundColor: '#fff8e8' },
+  inputOsm: { borderColor: tk.warning, backgroundColor: tk.warningBg },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 10,
-    backgroundColor: '#eee',
+    backgroundColor: tk.border,
   },
-  badgeOsm: { backgroundColor: '#fff1cc' },
-  badgeManual: { backgroundColor: '#e6f4ea' },
-  badgeText: { fontSize: 11, color: '#777', fontWeight: '600' },
-  badgeTextOsm: { color: '#8a6100' },
-  badgeTextManual: { color: '#137333' },
+  badgeOsm: { backgroundColor: tk.warningBg },
+  badgeManual: { backgroundColor: tk.status.doneSoft },
+  badgeText: { fontSize: 11, color: tk.textMuted, fontWeight: '600' },
+  badgeTextOsm: { color: tk.warningText },
+  badgeTextManual: { color: tk.status.done },
 });

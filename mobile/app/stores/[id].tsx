@@ -25,6 +25,8 @@ import {
 import { FeedbackEntry, formatWhen } from '../../src/components/FeedbackEntry';
 import { tagLabel } from '../../src/domain/feedbackTags';
 
+import { color as tk } from '../../src/theme';
+
 type StoreSize = 'small' | 'medium' | 'large';
 
 const SIZES: StoreSize[] = ['small', 'medium', 'large'];
@@ -203,7 +205,7 @@ export default function StoreDetailScreen() {
             onPress={saveAttributes}
           >
             {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={tk.onBrand} />
             ) : (
               <Text style={styles.saveButtonText}>Save</Text>
             )}
@@ -315,31 +317,31 @@ const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   page: { padding: 16, gap: 14, maxWidth: 760, width: '100%', alignSelf: 'center' },
   title: { fontSize: 24, fontWeight: '700' },
-  address: { fontSize: 14, color: '#666' },
-  error: { color: '#b00020', fontSize: 14 },
-  muted: { color: '#777', fontSize: 14 },
+  address: { fontSize: 14, color: tk.textMuted },
+  error: { color: tk.danger, fontSize: 14 },
+  muted: { color: tk.textMuted, fontSize: 14 },
 
   card: {
-    backgroundColor: '#f7f9fc',
+    backgroundColor: tk.bg,
     borderRadius: 12,
     padding: 16,
     gap: 8,
   },
   cardTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
 
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: '#444', marginTop: 4 },
+  fieldLabel: { fontSize: 13, fontWeight: '600', color: tk.text, marginTop: 4 },
   optionRow: { flexDirection: 'row', gap: 8 },
   option: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 16,
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: tk.borderStrong,
   },
-  optionActive: { backgroundColor: '#1f6feb', borderColor: '#1f6feb' },
-  optionText: { fontWeight: '600', color: '#333', fontSize: 14 },
-  optionTextActive: { color: '#fff' },
+  optionActive: { backgroundColor: tk.brand, borderColor: tk.brand },
+  optionText: { fontWeight: '600', color: tk.text, fontSize: 14 },
+  optionTextActive: { color: tk.onBrand },
   attrFooter: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -347,16 +349,16 @@ const styles = StyleSheet.create({
     marginTop: 6,
     gap: 10,
   },
-  audit: { fontSize: 12, color: '#777', flex: 1 },
+  audit: { fontSize: 12, color: tk.textMuted, flex: 1 },
   saveButton: {
-    backgroundColor: '#1f6feb',
+    backgroundColor: tk.brand,
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 24,
     alignItems: 'center',
     minWidth: 90,
   },
-  saveButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  saveButtonText: { color: tk.onBrand, fontWeight: '700', fontSize: 15 },
   disabled: { opacity: 0.45 },
 
   visitRow: {
@@ -364,31 +366,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#e6eaf0',
+    borderBottomColor: tk.border,
     gap: 6,
   },
-  visitHeader: { borderBottomColor: '#c9d2de' },
-  visitHead: { fontWeight: '700', color: '#555' },
-  visitCell: { flex: 1, fontSize: 13, color: '#222' },
-  visitCellWide: { flex: 1.4, fontSize: 13, color: '#222' },
+  visitHeader: { borderBottomColor: tk.borderStrong },
+  visitHead: { fontWeight: '700', color: tk.textMuted },
+  visitCell: { flex: 1, fontSize: 13, color: tk.text },
+  visitCellWide: { flex: 1.4, fontSize: 13, color: tk.text },
   delta: { fontWeight: '700' },
-  deltaLate: { color: '#b00020' },
-  deltaEarly: { color: '#1a7f37' },
+  deltaLate: { color: tk.danger },
+  deltaEarly: { color: tk.status.done },
 
   recurring: {
-    backgroundColor: '#fff8e8',
-    borderColor: '#f0b429',
+    backgroundColor: tk.warningBg,
+    borderColor: tk.warningBorder,
     borderWidth: 1,
     borderRadius: 10,
     padding: 10,
   },
-  recurringText: { color: '#8a6d00', fontWeight: '600', fontSize: 13 },
+  recurringText: { color: tk.warningText, fontWeight: '600', fontSize: 13 },
   tagSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   summaryChip: {
-    backgroundColor: '#eef2f7',
+    backgroundColor: tk.soft,
     borderRadius: 12,
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
-  summaryChipText: { fontSize: 12, color: '#334', fontWeight: '700' },
+  summaryChipText: { fontSize: 12, color: tk.text, fontWeight: '700' },
 });

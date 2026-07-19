@@ -16,6 +16,8 @@ import { MyToursList } from '../src/components/MyToursList';
 import { draftStore } from '../src/state/draftStore';
 import { useSession } from '../src/state/session';
 
+import { color as tk } from '../src/theme';
+
 type Phase =
   | { name: 'idle' }
   | { name: 'camera' }
@@ -158,26 +160,26 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, gap: 14 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 20 },
   title: { fontSize: 28, fontWeight: '700' },
-  subtitle: { fontSize: 15, color: '#555', marginBottom: 8 },
-  muted: { fontSize: 15, color: '#555' },
+  subtitle: { fontSize: 15, color: tk.textMuted, marginBottom: 8 },
+  muted: { fontSize: 15, color: tk.textMuted },
   spacer: { marginTop: 4 },
   button: {
-    backgroundColor: '#1f6feb',
+    backgroundColor: tk.brand,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
+  buttonText: { color: tk.onBrand, fontWeight: '600', fontSize: 16 },
   buttonSecondary: {
     borderWidth: 1,
-    borderColor: '#1f6feb',
+    borderColor: tk.brand,
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
-  buttonSecondaryText: { color: '#1f6feb', fontWeight: '600', fontSize: 16 },
+  buttonSecondaryText: { color: tk.brand, fontWeight: '600', fontSize: 16 },
   storesLink: {
-    color: '#1f6feb',
+    color: tk.brand,
     fontWeight: '600',
     fontSize: 15,
     textAlign: 'center',
@@ -187,15 +189,15 @@ const styles = StyleSheet.create({
   previewSmall: { width: 120, height: 150, borderRadius: 6, resizeMode: 'cover' },
   errorBox: {
     borderWidth: 1,
-    borderColor: '#f2c1c1',
-    backgroundColor: '#fdf3f3',
+    borderColor: tk.dangerBorder,
+    backgroundColor: tk.dangerBg,
     borderRadius: 12,
     padding: 16,
     gap: 8,
     alignItems: 'center',
   },
-  errorText: { fontSize: 16, fontWeight: '600', color: '#b00020' },
-  errorDetail: { fontSize: 13, color: '#8a2b2b', textAlign: 'center' },
+  errorText: { fontSize: 16, fontWeight: '600', color: tk.danger },
+  errorDetail: { fontSize: 13, color: tk.dangerText, textAlign: 'center' },
   cameraFill: { flex: 1 },
   cameraControls: {
     position: 'absolute',
@@ -211,10 +213,10 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderWidth: 4,
-    borderColor: '#00000055',
+    borderColor: tk.scrim,
   },
   cameraCancel: { width: 72, alignItems: 'center' },
-  cameraCancelText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  cameraCancelText: { color: tk.onBrand, fontSize: 16, fontWeight: '600' },
 });

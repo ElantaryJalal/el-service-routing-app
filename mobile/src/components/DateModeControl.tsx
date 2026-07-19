@@ -9,6 +9,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import type { DateMode } from '../api/client';
 
+import { color as tk } from '../theme';
+
 const OPTIONS: { mode: DateMode; label: string; caption?: string }[] = [
   { mode: 'fixed', label: 'Plan dates (recommended)' },
   {
@@ -40,7 +42,7 @@ export function DateModeControl({
         accessibilityLabel="Change date mode"
       >
         {busy ? (
-          <ActivityIndicator size="small" color="#1f6feb" />
+          <ActivityIndicator size="small" color={tk.brand} />
         ) : (
           <Text style={styles.chipIcon}>📅</Text>
         )}
@@ -94,34 +96,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
     elevation: 2,
   },
   chipIcon: { fontSize: 13 },
-  chipText: { fontWeight: '600', color: '#333', fontSize: 13 },
-  caret: { color: '#999', fontSize: 12 },
+  chipText: { fontWeight: '600', color: tk.text, fontSize: 13 },
+  caret: { color: tk.textFaint, fontSize: 12 },
 
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 12,
     padding: 12,
     gap: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
     elevation: 2,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontSize: 13, fontWeight: '700', color: '#666', textTransform: 'uppercase' },
+  title: { fontSize: 13, fontWeight: '700', color: tk.textMuted, textTransform: 'uppercase' },
   option: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  radio: { fontSize: 16, color: '#999', lineHeight: 20 },
-  radioActive: { color: '#1f6feb' },
+  radio: { fontSize: 16, color: tk.textFaint, lineHeight: 20 },
+  radioActive: { color: tk.brand },
   optionBody: { flex: 1, gap: 2 },
-  optionLabel: { fontSize: 14, color: '#333' },
-  optionLabelActive: { fontWeight: '700', color: '#1f6feb' },
-  caption: { fontSize: 12, color: '#8a6d00' },
+  optionLabel: { fontSize: 14, color: tk.text },
+  optionLabelActive: { fontWeight: '700', color: tk.brand },
+  caption: { fontSize: 12, color: tk.warningText },
 });

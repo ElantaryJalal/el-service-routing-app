@@ -38,8 +38,11 @@ import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
 import { useOutboxStatus } from '../src/state/useOutboxStatus';
 
+import { Button, SyncState } from '../src/components/ui';
+import { color as tk } from '../src/theme';
+
 /** Marker colour for stops already serviced (day colour otherwise). */
-const COMPLETED_GREY = '#9aa0a6';
+const COMPLETED_GREY = tk.textFaint;
 
 type Load =
   | { state: 'loading' }
@@ -428,12 +431,10 @@ export default function MapScreen() {
               </View>
             )}
             {outboxStatus.pending > 0 && (
-              <View style={styles.syncPill}>
-                <Text style={styles.syncPillText}>
-                  ⇅ {outboxStatus.pending} change
-                  {outboxStatus.pending === 1 ? '' : 's'} pending sync
-                </Text>
-              </View>
+              <SyncState
+                state="pending"
+                label={`${outboxStatus.pending} change${outboxStatus.pending === 1 ? '' : 's'} pending sync`}
+              />
             )}
           </View>
         </View>
@@ -522,9 +523,7 @@ export default function MapScreen() {
                 </View>
               ))}
             </ScrollView>
-            <Pressable style={styles.button} onPress={() => setShowUnassigned(false)}>
-              <Text style={styles.buttonText}>Close</Text>
-            </Pressable>
+            <Button title="Close" onPress={() => setShowUnassigned(false)} />
           </View>
         </View>
       </Modal>
@@ -617,11 +616,7 @@ function StopDetailCard({
             </Text>
           </Pressable>
         )}
-        {pendingSync && (
-          <View style={styles.syncBadge}>
-            <Text style={styles.syncBadgeText}>⇅ not yet synced</Text>
-          </View>
-        )}
+        {pendingSync && <SyncState state="pending" label="Not yet synced" />}
       </View>
 
       <View style={[styles.etaRow, urgent && styles.etaRowUrgent]}>
@@ -651,23 +646,27 @@ function StopDetailCard({
         </View>
       )}
 
-      <Pressable style={styles.button} onPress={navigate}>
-        <Text style={styles.buttonText}>Navigate</Text>
-      </Pressable>
-
+      {/* Thumb row: the screen's ONE primary action (Mark done) beside
+          Navigate; everything else stays quiet below. */}
+      <View style={styles.actionRow}>
+        <Button title="Navigate" onPress={navigate} style={styles.flex} />
+        {stop.completed_at === null && (
+          <Button
+            title="Mark done ✓"
+            variant="primary"
+            onPress={onMarkDone}
+            style={styles.flex}
+          />
+        )}
+      </View>
       {stop.completed_at === null ? (
-        <>
-          <Pressable style={styles.doneButton} onPress={onMarkDone}>
-            <Text style={styles.buttonText}>Mark done ✓</Text>
-          </Pressable>
-          <Pressable style={styles.undoButton} onPress={onMove}>
-            <Text style={styles.undoButtonText}>Move to another day…</Text>
-          </Pressable>
-        </>
+        <Button title="Move to another day…" variant="ghost" onPress={onMove} />
       ) : (
-        <Pressable style={styles.undoButton} onPress={onMarkNotDone}>
-          <Text style={styles.undoButtonText}>Completed — mark as not done</Text>
-        </Pressable>
+        <Button
+          title="Completed — mark as not done"
+          variant="ghost"
+          onPress={onMarkNotDone}
+        />
       )}
     </View>
   );
@@ -676,8 +675,8 @@ function StopDetailCard({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
-  muted: { fontSize: 15, color: '#555', textAlign: 'center' },
-  errorText: { fontSize: 15, color: '#b00020', textAlign: 'center' },
+  muted: { fontSize: 15, color: tk.textMuted, textAlign: 'center' },
+  errorText: { fontSize: 15, color: tk.danger, textAlign: 'center' },
 
   pin: {
     minWidth: 26,
@@ -687,32 +686,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#fff',
+    borderColor: tk.onBrand,
   },
-  pinText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  pinText: { color: tk.onBrand, fontWeight: '700', fontSize: 13 },
   pinCompleted: { opacity: 0.7 },
-  pinPendingSync: { borderColor: '#f6a609' },
+  pinPendingSync: { borderColor: tk.warning },
 
   pillColumn: { gap: 6, alignItems: 'flex-end' },
-  syncPill: {
-    backgroundColor: '#fff8e8',
-    borderRadius: 18,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#f0b429',
-    elevation: 2,
-  },
-  syncPillText: { fontWeight: '700', color: '#8a6d00', fontSize: 13 },
-  syncBadge: {
-    borderRadius: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    backgroundColor: '#fff8e8',
-    borderWidth: 1,
-    borderColor: '#f0b429',
-  },
-  syncBadgeText: { color: '#8a6d00', fontWeight: '600', fontSize: 13 },
 
   controlRow: {
     flexDirection: 'row',
@@ -725,30 +705,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
     elevation: 2,
   },
-  replanChipText: { fontWeight: '600', color: '#333', fontSize: 13 },
+  replanChipText: { fontWeight: '600', color: tk.text, fontSize: 13 },
   progressPill: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
     elevation: 2,
   },
-  progressText: { fontWeight: '700', color: '#1a7f37', fontSize: 13 },
+  progressText: { fontWeight: '700', color: tk.status.done, fontSize: 13 },
 
   topOverlay: { position: 'absolute', top: 0, left: 0, right: 0, gap: 8, paddingHorizontal: 12 },
   banner: {
-    backgroundColor: '#fff3cd',
-    borderColor: '#f0b429',
+    backgroundColor: tk.warningBg,
+    borderColor: tk.warningBorder,
     borderWidth: 1,
     borderRadius: 10,
     paddingVertical: 10,
@@ -757,25 +737,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  bannerText: { color: '#7a5b00', fontWeight: '600', fontSize: 14, flex: 1 },
-  bannerLink: { color: '#1f6feb', fontWeight: '700' },
+  bannerText: { color: tk.warningText, fontWeight: '600', fontSize: 14, flex: 1 },
+  bannerLink: { color: tk.brand, fontWeight: '700' },
 
   chips: { gap: 8, paddingRight: 12 },
   chip: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: tk.border,
     elevation: 2,
   },
-  chipActive: { backgroundColor: '#1f6feb', borderColor: '#1f6feb' },
-  chipText: { fontWeight: '600', color: '#333' },
-  chipTextActive: { color: '#fff' },
+  chipActive: { backgroundColor: tk.brand, borderColor: tk.brand },
+  chipText: { fontWeight: '600', color: tk.text },
+  chipTextActive: { color: tk.onBrand },
   chipDot: { width: 10, height: 10, borderRadius: 5 },
 
   detailCard: {
@@ -783,7 +763,7 @@ const styles = StyleSheet.create({
     left: 12,
     right: 12,
     bottom: 12,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderRadius: 14,
     padding: 16,
     gap: 10,
@@ -794,72 +774,51 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
   },
   detailHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  actionRow: { flexDirection: 'row', gap: 8 },
   detailTitle: { fontSize: 18, fontWeight: '700' },
-  detailAddress: { fontSize: 14, color: '#666', marginTop: 2 },
-  close: { fontSize: 18, color: '#999', paddingHorizontal: 4 },
+  detailAddress: { fontSize: 14, color: tk.textMuted, marginTop: 2 },
+  close: { fontSize: 18, color: tk.textFaint, paddingHorizontal: 4 },
   metaRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   dayBadge: { borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10 },
-  dayBadgeText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  dayBadgeText: { color: tk.onBrand, fontWeight: '700', fontSize: 13 },
   notesBadge: {
     borderRadius: 8,
     paddingVertical: 4,
     paddingHorizontal: 10,
-    backgroundColor: '#eef2f7',
+    backgroundColor: tk.soft,
   },
-  notesBadgeText: { color: '#1f6feb', fontWeight: '600', fontSize: 13 },
+  notesBadgeText: { color: tk.brand, fontWeight: '600', fontSize: 13 },
   etaRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     flexWrap: 'wrap',
-    backgroundColor: '#f5f7fa',
+    backgroundColor: tk.bg,
     borderRadius: 8,
     padding: 10,
   },
-  etaRowUrgent: { backgroundColor: '#fdecea' },
-  etaLabel: { fontSize: 12, color: '#777' },
-  etaValue: { fontSize: 16, fontWeight: '700', color: '#222' },
-  etaValueUrgent: { color: '#b00020' },
-  urgentHint: { color: '#b00020', fontSize: 13, fontWeight: '600' },
+  etaRowUrgent: { backgroundColor: tk.dangerBg },
+  etaLabel: { fontSize: 12, color: tk.textMuted },
+  etaValue: { fontSize: 16, fontWeight: '700', color: tk.text },
+  etaValueUrgent: { color: tk.danger },
+  urgentHint: { color: tk.danger, fontSize: 13, fontWeight: '600' },
   remarks: {
-    backgroundColor: '#fff8e8',
+    backgroundColor: tk.warningBg,
     borderLeftWidth: 3,
-    borderLeftColor: '#f6a609',
+    borderLeftColor: tk.warning,
     paddingHorizontal: 8,
     paddingVertical: 4,
     fontSize: 13,
-    color: '#5c4a12',
+    color: tk.warningText,
   },
   taskChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  taskChip: { backgroundColor: '#eef2f7', borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10 },
-  taskChipText: { fontSize: 13, color: '#334' },
+  taskChip: { backgroundColor: tk.soft, borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10 },
+  taskChipText: { fontSize: 13, color: tk.text },
 
-  button: {
-    backgroundColor: '#1f6feb',
-    paddingVertical: 13,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-  doneButton: {
-    backgroundColor: '#1a7f37',
-    paddingVertical: 13,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  undoButton: {
-    backgroundColor: '#f1f3f5',
-    paddingVertical: 13,
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ccc',
-  },
-  undoButtonText: { color: '#555', fontWeight: '600', fontSize: 15 },
 
-  modalBackdrop: { flex: 1, backgroundColor: '#00000088', justifyContent: 'flex-end' },
+  modalBackdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   modalCard: {
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
@@ -868,7 +827,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 20, fontWeight: '700' },
   modalList: { flexGrow: 0 },
-  unassignedRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  unassignedRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: tk.border },
   unassignedLabel: { fontSize: 15, fontWeight: '600' },
-  unassignedReason: { fontSize: 13, color: '#b00020', marginTop: 2 },
+  unassignedReason: { fontSize: 13, color: tk.danger, marginTop: 2 },
 });

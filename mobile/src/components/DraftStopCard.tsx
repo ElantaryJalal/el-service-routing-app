@@ -10,6 +10,8 @@ import {
   type DraftStopUpdate,
 } from '../api/client';
 
+import { color as tk } from '../theme';
+
 const LOW_CONFIDENCE = 0.6;
 
 function isLow(confidence: DraftConfidence, field: keyof DraftConfidence): boolean {
@@ -76,7 +78,7 @@ export function DraftStopCard({ index, stop, onPatch }: Props) {
         ]}
         value={values[field]}
         placeholder={opts?.placeholder}
-        placeholderTextColor="#aaa"
+        placeholderTextColor={tk.textFaint}
         keyboardType={opts?.keyboard ?? 'default'}
         multiline={opts?.multiline}
         onChangeText={(t) => set(field, t)}
@@ -131,20 +133,20 @@ export function DraftStopCard({ index, stop, onPatch }: Props) {
   );
 }
 
-const AMBER = '#f6a609';
+const AMBER = tk.warning;
 
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e2e2',
+    borderColor: tk.border,
     borderRadius: 12,
     padding: 16,
     gap: 10,
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
   },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#333' },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: tk.text },
   remarksBox: {
-    backgroundColor: '#fff8e8',
+    backgroundColor: tk.warningBg,
     borderLeftWidth: 3,
     borderLeftColor: AMBER,
     borderRadius: 6,
@@ -152,43 +154,43 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     gap: 2,
   },
-  remarksLabel: { fontSize: 11, fontWeight: '700', color: '#b8860b', textTransform: 'uppercase' },
-  remarksText: { fontSize: 14, color: '#5c4a12' },
+  remarksLabel: { fontSize: 11, fontWeight: '700', color: tk.warning, textTransform: 'uppercase' },
+  remarksText: { fontSize: 14, color: tk.warningText },
   field: { gap: 4 },
-  label: { fontSize: 13, color: '#666', fontWeight: '600' },
+  label: { fontSize: 13, color: tk.textMuted, fontWeight: '600' },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: tk.borderStrong,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 15,
   },
   inputMultiline: { minHeight: 60, textAlignVertical: 'top' },
-  inputLow: { borderColor: AMBER, backgroundColor: '#fff8e8' },
-  lowHint: { fontSize: 12, color: '#b8860b' },
+  inputLow: { borderColor: AMBER, backgroundColor: tk.warningBg },
+  lowHint: { fontSize: 12, color: tk.warning },
   pair: { flexDirection: 'row', gap: 10 },
   pairItem: { flex: 1 },
   pairItemWide: { flex: 2 },
   serviceBox: {
     borderWidth: 1,
-    borderColor: '#1f6feb',
-    backgroundColor: '#f0f6ff',
+    borderColor: tk.brand,
+    backgroundColor: tk.brandSoft,
     borderRadius: 10,
     padding: 12,
     gap: 4,
     marginTop: 2,
   },
-  serviceLabel: { fontSize: 15, fontWeight: '700', color: '#0b3d91' },
-  serviceHelp: { fontSize: 12, color: '#3a5a8c' },
+  serviceLabel: { fontSize: 15, fontWeight: '700', color: tk.infoText },
+  serviceHelp: { fontSize: 12, color: tk.infoText },
   serviceInput: {
     borderWidth: 1,
-    borderColor: '#9bbcf0',
+    borderColor: tk.infoBorder,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 20,
     fontWeight: '700',
-    backgroundColor: '#fff',
+    backgroundColor: tk.surface,
   },
 });

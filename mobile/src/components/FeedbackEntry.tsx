@@ -6,6 +6,8 @@ import type { FeedbackRead } from '../api/client';
 import { API_BASE_URL } from '../api/config';
 import { tagLabel } from '../domain/feedbackTags';
 
+import { color as tk } from '../theme';
+
 export function formatWhen(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -46,20 +48,20 @@ const styles = StyleSheet.create({
   entry: {
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: tk.border,
     gap: 6,
   },
   entryHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  when: { fontSize: 13, fontWeight: '700', color: '#444' },
-  employee: { fontSize: 13, color: '#777' },
+  when: { fontSize: 13, fontWeight: '700', color: tk.text },
+  employee: { fontSize: 13, color: tk.textMuted },
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   tag: {
-    backgroundColor: '#eef2f7',
+    backgroundColor: tk.soft,
     borderRadius: 12,
     paddingVertical: 3,
     paddingHorizontal: 10,
   },
-  tagText: { fontSize: 12, color: '#334', fontWeight: '600' },
-  note: { fontSize: 14, color: '#222' },
-  photo: { width: '100%', height: 160, borderRadius: 8, backgroundColor: '#eee' },
+  tagText: { fontSize: 12, color: tk.text, fontWeight: '600' },
+  note: { fontSize: 14, color: tk.text },
+  photo: { width: '100%', height: 160, borderRadius: 8, backgroundColor: tk.border },
 });
