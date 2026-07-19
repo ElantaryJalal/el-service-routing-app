@@ -40,12 +40,23 @@ function tagLabel(tag: string): string {
   return tag.replace(/_/g, " ");
 }
 
-function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Kpi({
+  label,
+  value,
+  sub,
+  note,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  note?: string;
+}) {
   return (
     <div className="card kpi">
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{value}</div>
       {sub && <div className="kpi-sub">{sub}</div>}
+      {note && <div className="kpi-note">{note}</div>}
     </div>
   );
 }
@@ -72,17 +83,26 @@ function AnalyticsPage() {
   );
 
   useEffect(() => {
+    // The demo toggle re-runs this effect; a late response from the previous
+    // run must not overwrite the current one.
+    let stale = false;
+    const fail = (e: Error) => {
+      if (!stale) setError(String(e.message ?? e));
+    };
     Promise.all(weekRanges.map((r) => api.overview(r.from, r.to, showDemo)))
-      .then(setReports)
-      .catch((e) => setError(String(e.message ?? e)));
+      .then((r) => !stale && setReports(r))
+      .catch(fail);
     api
       .listStores(undefined, showDemo)
-      .then(setStores)
-      .catch((e) => setError(String(e.message ?? e)));
+      .then((s) => !stale && setStores(s))
+      .catch(fail);
     api
       .listFeedback({ includeDemo: showDemo })
-      .then(setFeedback)
-      .catch((e) => setError(String(e.message ?? e)));
+      .then((f) => !stale && setFeedback(f))
+      .catch(fail);
+    return () => {
+      stale = true;
+    };
   }, [weekRanges, showDemo]);
 
   const trend: WeekTrendPoint[] | null =
@@ -99,10 +119,6 @@ function AnalyticsPage() {
 
   const completedDelta =
     thisWeek && lastWeek ? thisWeek.stops_completed - lastWeek.stops_completed : null;
-  const ratePp =
-    thisWeek?.on_time.on_time_rate != null && lastWeek?.on_time.on_time_rate != null
-      ? Math.round((thisWeek.on_time.on_time_rate - lastWeek.on_time.on_time_rate) * 100)
-      : null;
   const avgDelta = thisWeek?.on_time.average_delta_minutes;
 
   // P4 results, per service profile: the same store can take a different
@@ -165,6 +181,20 @@ function AnalyticsPage() {
         <DemoToggle />
       </div>
 
+      <details className="card" style={{ marginBottom: 16 }}>
+        <summary className="small" style={{ cursor: "pointer", fontWeight: 650 }}>
+          How to read this
+        </summary>
+        <p className="muted small" style={{ margin: "8px 0 0" }}>
+          These figures are built from completion history over the last 6 weeks.
+          Service times are learned per store and task profile — the same store
+          can take different times depending on the visit&apos;s tasks. Because
+          early ETAs use a 45-minute default, the on-time rate reflects
+          estimates that are still being learned; it tightens as more stores
+          gather history.
+        </p>
+      </details>
+
       {error && <div className="banner banner-error">{error}</div>}
       {loading && <p className="muted">Loading…</p>}
 
@@ -181,28 +211,18 @@ function AnalyticsPage() {
               }
             />
             <Kpi
-              label="On-time rate"
+              label="On-time completions"
               value={
                 thisWeek.on_time.on_time_rate !== null
                   ? `${Math.round(thisWeek.on_time.on_time_rate * 100)}%`
                   : "—"
               }
               sub={
-                ratePp !== null
-                  ? `${ratePp >= 0 ? "+" : ""}${ratePp} pp vs last week`
-                  : thisWeek.on_time.on_time_rate !== null
-                    ? "no comparison week"
-                    : "no timed completions yet"
-              }
-            />
-            <Kpi
-              label="Ø vs ETA"
-              value={
                 avgDelta !== null && avgDelta !== undefined
-                  ? `${avgDelta >= 0 ? "+" : ""}${Math.round(avgDelta)} min`
-                  : "—"
+                  ? `Ø ${avgDelta >= 0 ? "+" : ""}${Math.round(avgDelta)} min vs ETA · ±${thisWeek.on_time.tolerance_minutes} min tolerance · ${thisWeek.on_time.sample_count} timed`
+                  : "no timed completions yet"
               }
-              sub={`${thisWeek.on_time.sample_count} timed completions`}
+              note="ETAs seed from a 45-min default until a store has enough visits to be learned from history. Accuracy improves as more stores are modelled."
             />
             <Kpi
               label="Tours done"
@@ -240,6 +260,10 @@ function AnalyticsPage() {
                 default ({DEFAULT_SERVICE_MINUTES} min where none is set).
                 Largest corrections first.
               </p>
+              <p className="muted small" style={{ marginTop: 0 }}>
+                Estimates below 3 visits are provisional and sharpen as history
+                accumulates.
+              </p>
               {serviceRows.length === 0 ? (
                 <p className="muted" style={{ margin: 0 }}>
                   Nothing learned yet — recompute after the first completed weeks.
@@ -258,23 +282,37 @@ function AnalyticsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {serviceRows.map(({ store, service, samples, base, learned, delta }) => (
-                        <tr key={`${store.id}-${service}`}>
-                          <td>
-                            <Link href={`/stores/${store.id}`}>{store.name}</Link>
-                          </td>
-                          <td>{service}</td>
-                          <td className="num">{base} min</td>
-                          <td className="num">
-                            <strong>{learned} min</strong>
-                          </td>
-                          <td className="num">
-                            {delta >= 0 ? "+" : ""}
-                            {delta} min
-                          </td>
-                          <td className="num">{samples}</td>
-                        </tr>
-                      ))}
+                      {serviceRows.map(({ store, service, samples, base, learned, delta }) => {
+                        const provisional = samples < 3;
+                        return (
+                          <tr key={`${store.id}-${service}`}>
+                            <td>
+                              <Link href={`/stores/${store.id}`}>{store.name}</Link>
+                            </td>
+                            <td>{service}</td>
+                            <td className="num">{base} min</td>
+                            <td className="num">
+                              <strong>{learned} min</strong>
+                              {provisional && (
+                                <span
+                                  className="muted"
+                                  style={{ fontSize: 11, marginLeft: 6 }}
+                                >
+                                  provisional
+                                </span>
+                              )}
+                            </td>
+                            <td
+                              className={provisional ? "num muted" : "num"}
+                              style={provisional ? { fontWeight: 300 } : undefined}
+                            >
+                              {delta >= 0 ? "+" : ""}
+                              {delta} min
+                            </td>
+                            <td className="num">{samples}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

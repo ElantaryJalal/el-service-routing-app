@@ -36,10 +36,16 @@ function StoresPage() {
     const needs =
       filter === "all" ? undefined : filter === "needs" ? true : false;
     setStores(null);
+    // Filter changes and the demo toggle re-run this effect; a late response
+    // from the previous run must not overwrite the current one.
+    let stale = false;
     api
       .listStores(needs, showDemo)
-      .then(setStores)
-      .catch((e) => setError(String(e.message ?? e)));
+      .then((s) => !stale && setStores(s))
+      .catch((e) => !stale && setError(String(e.message ?? e)));
+    return () => {
+      stale = true;
+    };
   }, [filter, showDemo]);
 
   async function recompute() {

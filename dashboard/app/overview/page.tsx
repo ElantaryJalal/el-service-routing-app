@@ -45,12 +45,23 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
-function Kpi({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function Kpi({
+  label,
+  value,
+  sub,
+  note,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  note?: string;
+}) {
   return (
     <div className="card kpi">
       <div className="kpi-label">{label}</div>
       <div className="kpi-value">{value}</div>
       {sub && <div className="kpi-sub">{sub}</div>}
+      {note && <div className="kpi-note">{note}</div>}
     </div>
   );
 }
@@ -71,10 +82,16 @@ function OverviewPage() {
   useEffect(() => {
     setReport(null);
     setError(null);
+    // Week paging and the demo toggle re-run this effect; a late response
+    // from the previous run must not overwrite the current one.
+    let stale = false;
     api
       .overview(range.from, range.to, showDemo)
-      .then(setReport)
-      .catch((e) => setError(String(e.message ?? e)));
+      .then((r) => !stale && setReport(r))
+      .catch((e) => !stale && setError(String(e.message ?? e)));
+    return () => {
+      stale = true;
+    };
   }, [range, showDemo]);
 
   const onTime = report?.on_time;
@@ -139,9 +156,10 @@ function OverviewPage() {
               }
               sub={
                 onTime && avgDelta !== null && avgDelta !== undefined
-                  ? `Ø ${avgDelta >= 0 ? "+" : ""}${Math.round(avgDelta)} min vs ETA · ${onTime.sample_count} timed · ±${onTime.tolerance_minutes} min`
+                  ? `Ø ${avgDelta >= 0 ? "+" : ""}${Math.round(avgDelta)} min vs ETA · ±${onTime.tolerance_minutes} min tolerance · ${onTime.sample_count} timed`
                   : "no timed completions yet"
               }
+              note="ETAs seed from a 45-min default until a store has enough visits to be learned from history. Accuracy improves as more stores are modelled."
             />
             <Kpi
               label="Markets outstanding"
