@@ -15,13 +15,13 @@ export interface WeekTrendPoint {
   onTimeRate: number | null; // 0..1, null = no timed completions that week
 }
 
-const PLANNED = "#bccff7";
-const COMPLETED = "#1e40af";
-const LINE = "#1e40af";
-const GRID = "#e6ebf3";
-const TEXT_MUTED = "#5b6b84";
-const TEXT_STRONG = "#16233a";
-const SURFACE = "#ffffff";
+const PLANNED = "var(--el-blue-200)";
+const COMPLETED = "var(--color-brand)";
+const LINE = "var(--color-brand)";
+const GRID = "var(--color-border)";
+const TEXT_MUTED = "var(--color-text-muted)";
+const TEXT_STRONG = "var(--color-text)";
+const SURFACE = "var(--color-surface)";
 
 const WIDTH = 640;
 const BAR = 14;
@@ -214,7 +214,7 @@ export default function WeeklyTrendChart({ weeks }: { weeks: WeekTrendPoint[] })
             top: 24,
             transform: "translateX(-50%)",
             background: TEXT_STRONG,
-            color: "#fff",
+            color: "var(--color-surface)",
             borderRadius: 6,
             padding: "5px 9px",
             fontSize: 12.5,

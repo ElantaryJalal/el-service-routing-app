@@ -6,6 +6,16 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import ProvenanceBadge from "@/components/ProvenanceBadge";
+import {
+  Button,
+  Card,
+  EmptyState,
+  Skeleton,
+  StatusChip,
+  Table,
+  Td,
+  Th,
+} from "@/components/ui";
 import { Protected, useAuth } from "@/lib/auth";
 import { api, type Store } from "@/lib/api";
 
@@ -73,20 +83,20 @@ function StoresPage() {
   }
 
   return (
-    <AppShell>
-      <div className="page-head">
-        <h1>Stores</h1>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <AppShell
+      title="Stores"
+      actions={
+        <>
           <DemoToggle />
           {(user?.role === "dispatcher" || user?.role === "admin") && (
-            <button
-              className="btn btn-sm"
-              disabled={recomputing}
+            <Button
+              size="sm"
+              loading={recomputing}
               onClick={recompute}
               title="Re-learn per-store service durations from completion history"
             >
               {recomputing ? "Recomputing…" : "Recompute service times"}
-            </button>
+            </Button>
           )}
           {(
             [
@@ -95,91 +105,94 @@ function StoresPage() {
               ["complete", "Complete"],
             ] as [Filter, string][]
           ).map(([value, label]) => (
-            <button
+            <Button
               key={value}
-              className={`btn btn-sm${filter === value ? " btn-primary" : ""}`}
+              size="sm"
+              variant={filter === value ? "primary" : "secondary"}
               onClick={() => setFilter(value)}
             >
               {label}
-            </button>
+            </Button>
           ))}
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {error && <div className="banner banner-error">{error}</div>}
       {recomputeResult && (
         <div className="banner banner-ok">{recomputeResult}</div>
       )}
 
-      <div className="card" style={{ padding: 0 }}>
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
+      <Card style={{ padding: 0 }}>
+        <Table>
+          <thead>
+            <tr>
+              <Th>Store</Th>
+              <Th>Address</Th>
+              <Th>Size</Th>
+              <Th>Mall</Th>
+              <Th>Parking</Th>
+              <Th numeric>Time spent</Th>
+              <Th numeric>Services</Th>
+              <Th>Facts</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {stores === null ? (
+              Array.from({ length: 5 }, (_, i) => (
+                <tr key={i}>
+                  {Array.from({ length: 8 }, (_, j) => (
+                    <Td key={j}>
+                      <Skeleton />
+                    </Td>
+                  ))}
+                </tr>
+              ))
+            ) : stores.length === 0 ? (
               <tr>
-                <th>Store</th>
-                <th>Address</th>
-                <th>Size</th>
-                <th>Mall</th>
-                <th>Parking</th>
-                <th>Time spent</th>
-                <th className="num">Services</th>
-                <th>Facts</th>
+                <Td colSpan={8}>
+                  <EmptyState title="No stores in this view" />
+                </Td>
               </tr>
-            </thead>
-            <tbody>
-              {stores === null ? (
-                <tr>
-                  <td colSpan={8} className="muted">
-                    Loading…
-                  </td>
+            ) : (
+              stores.map((s) => (
+                <tr
+                  key={s.id}
+                  className="ui-row-click"
+                  onClick={() => router.push(`/stores/${s.id}`)}
+                >
+                  <Td>
+                    <Link href={`/stores/${s.id}`}>{s.name}</Link>
+                  </Td>
+                  <Td className="muted">
+                    {[s.street, [s.postal_code, s.city].filter(Boolean).join(" ")]
+                      .filter(Boolean)
+                      .join(", ")}{" "}
+                    <ProvenanceBadge store={s} />
+                  </Td>
+                  <Td>{s.size ?? <span className="muted">?</span>}</Td>
+                  <Td>{tri(s.in_mall)}</Td>
+                  <Td>{tri(s.has_parking)}</Td>
+                  <Td numeric>
+                    {s.services_recorded > 0
+                      ? fmtTotal(s.total_service_minutes)
+                      : "—"}
+                  </Td>
+                  <Td numeric>
+                    {s.services_recorded > 0 ? s.services_recorded : "—"}
+                  </Td>
+                  <Td>
+                    {s.attributes_complete ? (
+                      <StatusChip status="done" label="complete" />
+                    ) : (
+                      <StatusChip status="in_progress" label="missing" />
+                    )}
+                  </Td>
                 </tr>
-              ) : stores.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="muted">
-                    No stores in this view.
-                  </td>
-                </tr>
-              ) : (
-                stores.map((s) => (
-                  <tr
-                    key={s.id}
-                    className="clickable"
-                    onClick={() => router.push(`/stores/${s.id}`)}
-                  >
-                    <td>
-                      <Link href={`/stores/${s.id}`}>{s.name}</Link>
-                    </td>
-                    <td className="muted">
-                      {[s.street, [s.postal_code, s.city].filter(Boolean).join(" ")]
-                        .filter(Boolean)
-                        .join(", ")}{" "}
-                      <ProvenanceBadge store={s} />
-                    </td>
-                    <td>{s.size ?? <span className="muted">?</span>}</td>
-                    <td>{tri(s.in_mall)}</td>
-                    <td>{tri(s.has_parking)}</td>
-                    <td className="num">
-                      {s.services_recorded > 0
-                        ? fmtTotal(s.total_service_minutes)
-                        : "—"}
-                    </td>
-                    <td className="num">
-                      {s.services_recorded > 0 ? s.services_recorded : "—"}
-                    </td>
-                    <td>
-                      {s.attributes_complete ? (
-                        <span className="badge badge-done">complete</span>
-                      ) : (
-                        <span className="badge badge-in_progress">missing</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              ))
+            )}
+          </tbody>
+        </Table>
+      </Card>
     </AppShell>
   );
 }

@@ -67,10 +67,14 @@ export default function TourMapInner({ stops, plan }: Props) {
       L.marker(pos, { icon })
         .bindPopup(
           `<strong>${stop.customer ?? "Stop " + stop.id}</strong>` +
-            (address ? `<br><span style="color:#666">${address}</span>` : "") +
-            (stop.tasks ? `<br><span style="font-size:12px">${stop.tasks}</span>` : "") +
+            (address
+              ? `<br><span style="color:var(--color-text-muted)">${address}</span>`
+              : "") +
+            (stop.tasks
+              ? `<br><span style="font-size:var(--text-label)">${stop.tasks}</span>`
+              : "") +
             (stop.completed_at
-              ? `<br><span style="color:#1a7f37;font-weight:600">✓ completed</span>`
+              ? `<br><span style="color:var(--color-success);font-weight:600">✓ completed</span>`
               : ""),
         )
         .addTo(layer);
@@ -86,7 +90,7 @@ export default function TourMapInner({ stops, plan }: Props) {
           line.push([stop.lat, stop.lng]);
           renderStop(
             stop,
-            stop.completed_at ? "#9aa4b2" : color,
+            stop.completed_at ? "var(--color-text-faint)" : color,
             String(planStop.sequence),
           );
         }
@@ -96,7 +100,9 @@ export default function TourMapInner({ stops, plan }: Props) {
       });
     } else {
       // No plan yet: show every geocoded stop neutrally.
-      stops.forEach((s, i) => renderStop(s, "#5b6b84", String(i + 1)));
+      stops.forEach((s, i) =>
+        renderStop(s, "var(--color-text-muted)", String(i + 1)),
+      );
     }
 
     if (bounds.length > 0) {

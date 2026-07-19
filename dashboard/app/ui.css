@@ -169,6 +169,7 @@ table.ui-table tr.ui-row-click {
 table.ui-table th.ui-num,
 table.ui-table td.ui-num {
   text-align: right;
+  white-space: nowrap;
 }
 
 /* ---- Field / Input / Select ---- */

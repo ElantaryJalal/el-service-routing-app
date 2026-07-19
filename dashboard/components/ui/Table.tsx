@@ -1,4 +1,9 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type {
+  HTMLAttributes,
+  ReactNode,
+  TdHTMLAttributes,
+  ThHTMLAttributes,
+} from "react";
 
 /** Token-styled data table. Compose with plain thead/tbody/tr/th/td;
  * use <Td numeric> (or className="ui-num") for aligned tabular numbers and
@@ -21,7 +26,7 @@ export function Td({
   children,
   className,
   ...rest
-}: HTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
+}: TdHTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
   return (
     <td
       {...rest}
@@ -37,7 +42,7 @@ export function Th({
   children,
   className,
   ...rest
-}: HTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
+}: ThHTMLAttributes<HTMLTableCellElement> & { numeric?: boolean }) {
   return (
     <th
       {...rest}

@@ -8,10 +8,10 @@
 import { useState } from "react";
 import type { DayLoad } from "@/lib/api";
 
-const PLANNED = "#bccff7";
-const COMPLETED = "#1e40af";
-const GRID = "#e6ebf3";
-const TEXT_MUTED = "#5b6b84";
+const PLANNED = "var(--el-blue-200)";
+const COMPLETED = "var(--color-brand)";
+const GRID = "var(--color-border)";
+const TEXT_MUTED = "var(--color-text-muted)";
 
 const WIDTH = 640;
 const HEIGHT = 200;
@@ -112,7 +112,7 @@ export default function WeekLoadChart({ days }: { days: DayLoad[] }) {
                   textAnchor="middle"
                   fontSize={11}
                   fontWeight={600}
-                  fill="#16233a"
+                  fill="var(--color-text)"
                 >
                   {d.completed}
                 </text>
@@ -148,8 +148,8 @@ export default function WeekLoadChart({ days }: { days: DayLoad[] }) {
             left: `${((PAD.left + hover * band + band / 2) / WIDTH) * 100}%`,
             top: 20,
             transform: "translateX(-50%)",
-            background: "#16233a",
-            color: "#fff",
+            background: "var(--color-text)",
+            color: "var(--color-surface)",
             borderRadius: 6,
             padding: "5px 9px",
             fontSize: 12.5,

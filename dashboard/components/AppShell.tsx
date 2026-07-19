@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { PageShell, Button } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import type { Role } from "@/lib/api";
 import type { ReactNode } from "react";
@@ -13,40 +12,46 @@ const NAV: { href: string; label: string; roles?: Role[] }[] = [
   { href: "/stores", label: "Stores" },
 ];
 
-export default function AppShell({ children }: { children: ReactNode }) {
+/** The office frame: ui PageShell with the app's nav and signed-in user.
+ * Pages pass title/subtitle/actions for the consistent page head. */
+export default function AppShell({
+  title,
+  subtitle,
+  actions,
+  children,
+}: {
+  title?: ReactNode;
+  subtitle?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
   const { user, logout } = useAuth();
-  const pathname = usePathname();
-  const nav = NAV.filter((item) => !item.roles || (user && item.roles.includes(user.role)));
+  const nav = NAV.filter(
+    (item) => !item.roles || (user && item.roles.includes(user.role)),
+  );
 
   return (
-    <>
-      <header className="shell-header">
-        <div className="shell-brand">
-          <Link href="/overview">EL Service · Office</Link>
-        </div>
-        <nav className="shell-nav">
-          {nav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={pathname.startsWith(item.href) ? "active" : ""}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-        {user && (
-          <div className="shell-user">
+    <PageShell
+      brand="EL Service · Office"
+      brandHref="/overview"
+      nav={nav}
+      user={
+        user && (
+          <>
             <span>
               <strong>{user.name}</strong> · {user.role}
             </span>
-            <button className="btn btn-sm" onClick={logout}>
+            <Button size="sm" onClick={logout}>
               Sign out
-            </button>
-          </div>
-        )}
-      </header>
-      <main className="page">{children}</main>
-    </>
+            </Button>
+          </>
+        )
+      }
+      title={title}
+      subtitle={subtitle}
+      actions={actions}
+    >
+      {children}
+    </PageShell>
   );
 }

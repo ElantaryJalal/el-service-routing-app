@@ -80,25 +80,21 @@ function ProofOfWorkPage() {
   const completedCount = stops.filter((s) => s.completed_at).length;
 
   return (
-    <AppShell>
-      <div className="page-head">
-        <div>
-          <div className="small" style={{ marginBottom: 2 }}>
-            <Link href="/tours">Tours</Link>{" "}
-            <span className="muted">
-              / <Link href={`/tours/${tour.id}`}>#{tour.id}</Link> / proof of work
-            </span>
-          </div>
-          <h1 style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {tour.customer} — proof of work
-            <StatusBadge status={tour.status} />
-          </h1>
-          <div className="muted small">
-            KW {tour.calendar_week} · {tour.date_from} → {tour.date_to} · {completedCount} of{" "}
-            {stops.length} stops completed
-          </div>
-        </div>
-      </div>
+    <AppShell
+      title={
+        <span style={{ display: "inline-flex", gap: "var(--space-3)", alignItems: "center" }}>
+          {tour.customer} — proof of work
+          <StatusBadge status={tour.status} />
+        </span>
+      }
+      subtitle={
+        <>
+          <Link href="/tours">Tours</Link> / <Link href={`/tours/${tour.id}`}>#{tour.id}</Link>{" "}
+          / proof of work · KW {tour.calendar_week} · {tour.date_from} → {tour.date_to} ·{" "}
+          {completedCount} of {stops.length} stops completed
+        </>
+      }
+    >
 
       {days.map((day) => (
         <div className="card" key={day ?? "unscheduled"}>

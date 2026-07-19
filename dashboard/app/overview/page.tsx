@@ -1,13 +1,24 @@
 "use client";
 
 /** Executive this-week overview: work completed across active tours.
- * Read-only by construction — it only renders GET /reports/overview. */
+ * Read-only by construction — it only renders GET /reports/overview.
+ * Leads with the "is everything okay?" KPIs; detail sits below the fold. */
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import WeekLoadChart from "@/components/WeekLoadChart";
+import {
+  Button,
+  Card,
+  EmptyState,
+  KpiCard,
+  Skeleton,
+  Table,
+  Td,
+  Th,
+} from "@/components/ui";
 import { Protected } from "@/lib/auth";
 import { api, type OverviewReport } from "@/lib/api";
 
@@ -45,23 +56,15 @@ function fmtTime(iso: string | null): string {
   return new Date(iso).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
 }
 
-function Kpi({
-  label,
-  value,
-  sub,
-  note,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  note?: string;
-}) {
+function KpiSkeletons() {
   return (
-    <div className="card kpi">
-      <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{value}</div>
-      {sub && <div className="kpi-sub">{sub}</div>}
-      {note && <div className="kpi-note">{note}</div>}
+    <div className="kpi-row">
+      {Array.from({ length: 6 }, (_, i) => (
+        <Card key={i}>
+          <Skeleton width="60%" height={12} />
+          <Skeleton width="40%" height={28} style={{ marginTop: "var(--space-2)" }} />
+        </Card>
+      ))}
     </div>
   );
 }
@@ -98,56 +101,55 @@ function OverviewPage() {
   const avgDelta = onTime?.average_delta_minutes;
 
   return (
-    <AppShell>
-      <div className="page-head">
-        <div>
-          <h1>This week</h1>
-          <div className="muted small">
-            Work completed across active tours · KW {range.week} · {fmtDay(range.from)} –{" "}
-            {fmtDay(range.to)}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <AppShell
+      title="This week"
+      subtitle={`Work completed across active tours · KW ${range.week} · ${fmtDay(range.from)} – ${fmtDay(range.to)}`}
+      actions={
+        <>
           <DemoToggle />
-          <button className="btn btn-sm" onClick={() => setWeekOffset((w) => w - 1)}>
+          <Button size="sm" onClick={() => setWeekOffset((w) => w - 1)}>
             ← Previous
-          </button>
-          <button
-            className="btn btn-sm"
+          </Button>
+          <Button
+            size="sm"
             disabled={weekOffset === 0}
             onClick={() => setWeekOffset(0)}
           >
             Current week
-          </button>
-          <button className="btn btn-sm" onClick={() => setWeekOffset((w) => w + 1)}>
+          </Button>
+          <Button size="sm" onClick={() => setWeekOffset((w) => w + 1)}>
             Next →
-          </button>
-        </div>
-      </div>
-
+          </Button>
+        </>
+      }
+    >
       {error && <div className="banner banner-error">{error}</div>}
-      {!report && !error && <p className="muted">Loading…</p>}
+      {!report && !error && <KpiSkeletons />}
 
       {report && (
         <>
           <div className="kpi-row">
-            <Kpi
+            <KpiCard
               label="Tours planned"
               value={String(report.tours.planned)}
               sub="confirmed, awaiting assignment"
             />
-            <Kpi
+            <KpiCard
               label="Tours underway"
               value={String(report.tours.assigned + report.tours.in_progress)}
               sub={`${report.tours.in_progress} in progress`}
             />
-            <Kpi label="Tours completed" value={String(report.tours.done)} sub="every stop done" />
-            <Kpi
+            <KpiCard
+              label="Tours completed"
+              value={String(report.tours.done)}
+              sub="every stop done"
+            />
+            <KpiCard
               label="Stops completed"
               value={`${report.stops_completed} / ${report.stops_planned}`}
               sub="across all active tours"
             />
-            <Kpi
+            <KpiCard
               label="On-time completions"
               value={
                 onTime && onTime.on_time_rate !== null
@@ -161,53 +163,50 @@ function OverviewPage() {
               }
               note="ETAs seed from a 45-min default until a store has enough visits to be learned from history. Accuracy improves as more stores are modelled."
             />
-            <Kpi
+            <KpiCard
               label="Markets outstanding"
               value={String(report.outstanding.length)}
               sub="still to be serviced"
             />
           </div>
 
-          <div className="card">
-            <h2>Stops per day</h2>
+          <Card title="Stops per day" style={{ marginBottom: "var(--space-4)" }}>
             <WeekLoadChart days={report.days} />
-          </div>
+          </Card>
 
-          <div className="card">
-            <h2>Markets still outstanding</h2>
+          <Card title="Markets still outstanding">
             {report.outstanding.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>
-                Nothing outstanding — the week&apos;s work is complete.
-              </p>
+              <EmptyState
+                title="Nothing outstanding"
+                hint="The week's work is complete."
+              />
             ) : (
-              <div className="table-wrap">
-                <table className="data">
-                  <thead>
-                    <tr>
-                      <th>Market</th>
-                      <th>City</th>
-                      <th>Planned day</th>
-                      <th>ETA</th>
-                      <th>Tour</th>
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Market</Th>
+                    <Th>City</Th>
+                    <Th>Planned day</Th>
+                    <Th>ETA</Th>
+                    <Th>Tour</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.outstanding.map((s) => (
+                    <tr key={s.stop_id}>
+                      <Td>{s.customer ?? <span className="muted">—</span>}</Td>
+                      <Td>{s.city ?? <span className="muted">—</span>}</Td>
+                      <Td numeric>{fmtDay(s.assigned_day)}</Td>
+                      <Td numeric>{fmtTime(s.eta)}</Td>
+                      <Td>
+                        <Link href={`/tours/${s.tour_id}`}>#{s.tour_id}</Link>
+                      </Td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {report.outstanding.map((s) => (
-                      <tr key={s.stop_id}>
-                        <td>{s.customer ?? <span className="muted">—</span>}</td>
-                        <td>{s.city ?? <span className="muted">—</span>}</td>
-                        <td className="num">{fmtDay(s.assigned_day)}</td>
-                        <td className="num">{fmtTime(s.eta)}</td>
-                        <td>
-                          <Link href={`/tours/${s.tour_id}`}>#{s.tour_id}</Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </Table>
             )}
-          </div>
+          </Card>
         </>
       )}
     </AppShell>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import StatusBadge from "@/components/StatusBadge";
+import { Card, EmptyState, Skeleton, Table, Td, Th } from "@/components/ui";
 import { Protected, useAuth } from "@/lib/auth";
 import { api, type Tour, type TourStatus, type User } from "@/lib/api";
 
@@ -55,12 +56,12 @@ function ToursPage() {
   const canPlan = user?.role === "dispatcher" || user?.role === "admin";
 
   return (
-    <AppShell>
-      <div className="page-head">
-        <h1>Tours</h1>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+    <AppShell
+      title="Tours"
+      actions={
+        <>
           <select
-            className="input"
+            className="ui-input"
             aria-label="Filter by status"
             value={status}
             onChange={(e) => setStatus(e.target.value as TourStatus | "all")}
@@ -73,7 +74,7 @@ function ToursPage() {
             ))}
           </select>
           <select
-            className="input"
+            className="ui-input"
             aria-label="Filter by assignee"
             value={assignee}
             onChange={(e) =>
@@ -88,80 +89,85 @@ function ToursPage() {
             ))}
           </select>
           {canPlan && (
-            <Link href="/tours/new" className="btn btn-primary">
+            <Link href="/tours/new" className="ui-btn ui-btn-primary">
               New tour
             </Link>
           )}
-        </div>
-      </div>
-
+        </>
+      }
+    >
       {error && <div className="banner banner-error">{error}</div>}
 
-      <div className="card" style={{ padding: 0 }}>
-        <div className="table-wrap">
-          <table className="data">
-            <thead>
+      <Card style={{ padding: 0 }}>
+        <Table>
+          <thead>
+            <tr>
+              <Th numeric>Tour</Th>
+              <Th>Customer</Th>
+              <Th numeric>Week</Th>
+              <Th numeric>Dates</Th>
+              <Th>Status</Th>
+              <Th>Assignee</Th>
+              <Th></Th>
+            </tr>
+          </thead>
+          <tbody>
+            {tours === null ? (
+              Array.from({ length: 4 }, (_, i) => (
+                <tr key={i}>
+                  {Array.from({ length: 7 }, (_, j) => (
+                    <Td key={j}>
+                      <Skeleton />
+                    </Td>
+                  ))}
+                </tr>
+              ))
+            ) : visible.length === 0 ? (
               <tr>
-                <th>Tour</th>
-                <th>Customer</th>
-                <th>Week</th>
-                <th>Dates</th>
-                <th>Status</th>
-                <th>Assignee</th>
-                <th></th>
+                <Td colSpan={7}>
+                  <EmptyState
+                    title="No tours match the current filters"
+                    hint={canPlan ? "Create a tour from a plan photo." : undefined}
+                  />
+                </Td>
               </tr>
-            </thead>
-            <tbody>
-              {tours === null ? (
-                <tr>
-                  <td colSpan={7} className="muted">
-                    Loading…
-                  </td>
+            ) : (
+              visible.map((t) => (
+                <tr
+                  key={t.id}
+                  className="ui-row-click"
+                  onClick={() => router.push(`/tours/${t.id}`)}
+                >
+                  <Td numeric>#{t.id}</Td>
+                  <Td>
+                    <Link href={`/tours/${t.id}`}>{t.customer}</Link>
+                  </Td>
+                  <Td numeric>KW {t.calendar_week}</Td>
+                  <Td numeric>
+                    {t.date_from} → {t.date_to}
+                  </Td>
+                  <Td>
+                    <StatusBadge status={t.status} />
+                  </Td>
+                  <Td>
+                    {t.assigned_user_id
+                      ? (byId.get(t.assigned_user_id)?.name ??
+                        `user ${t.assigned_user_id}`)
+                      : <span className="muted">—</span>}
+                  </Td>
+                  <Td onClick={(e) => e.stopPropagation()}>
+                    {(t.status === "in_progress" || t.status === "done") && (
+                      <Link className="small" href={`/tours/${t.id}/proof`}>
+                        Proof of work
+                      </Link>
+                    )}
+                  </Td>
                 </tr>
-              ) : visible.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="muted">
-                    No tours match the current filters.
-                  </td>
-                </tr>
-              ) : (
-                visible.map((t) => (
-                  <tr
-                    key={t.id}
-                    className="clickable"
-                    onClick={() => router.push(`/tours/${t.id}`)}
-                  >
-                    <td className="num">#{t.id}</td>
-                    <td>
-                      <Link href={`/tours/${t.id}`}>{t.customer}</Link>
-                    </td>
-                    <td className="num">KW {t.calendar_week}</td>
-                    <td className="num">
-                      {t.date_from} → {t.date_to}
-                    </td>
-                    <td>
-                      <StatusBadge status={t.status} />
-                    </td>
-                    <td>
-                      {t.assigned_user_id
-                        ? (byId.get(t.assigned_user_id)?.name ??
-                          `user ${t.assigned_user_id}`)
-                        : <span className="muted">—</span>}
-                    </td>
-                    <td onClick={(e) => e.stopPropagation()}>
-                      {(t.status === "in_progress" || t.status === "done") && (
-                        <Link className="small" href={`/tours/${t.id}/proof`}>
-                          Proof of work
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              ))
+            )}
+          </tbody>
+        </Table>
+      </Card>
     </AppShell>
   );
 }

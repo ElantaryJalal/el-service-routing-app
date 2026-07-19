@@ -11,6 +11,15 @@ import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import WeeklyTrendChart, { type WeekTrendPoint } from "@/components/WeeklyTrendChart";
+import {
+  Card,
+  EmptyState,
+  KpiCard,
+  Skeleton,
+  Table,
+  Td,
+  Th,
+} from "@/components/ui";
 import { Protected } from "@/lib/auth";
 import { api, type Feedback, type OverviewReport, type Store } from "@/lib/api";
 
@@ -38,27 +47,6 @@ function isoWeekNumber(d: Date): number {
 
 function tagLabel(tag: string): string {
   return tag.replace(/_/g, " ");
-}
-
-function Kpi({
-  label,
-  value,
-  sub,
-  note,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  note?: string;
-}) {
-  return (
-    <div className="card kpi">
-      <div className="kpi-label">{label}</div>
-      <div className="kpi-value">{value}</div>
-      {sub && <div className="kpi-sub">{sub}</div>}
-      {note && <div className="kpi-note">{note}</div>}
-    </div>
-  );
 }
 
 /** The fallback the optimiser uses when a store has no better estimate. */
@@ -170,22 +158,19 @@ function AnalyticsPage() {
   const loading = !error && (!reports || !stores || !feedback);
 
   return (
-    <AppShell>
-      <div className="page-head">
-        <div>
-          <h1>Analytics</h1>
-          <div className="muted small">
-            Trends, learned service times and field feedback · last {TREND_WEEKS} weeks
-          </div>
-        </div>
-        <DemoToggle />
-      </div>
-
-      <details className="card" style={{ marginBottom: 16 }}>
-        <summary className="small" style={{ cursor: "pointer", fontWeight: 650 }}>
+    <AppShell
+      title="Analytics"
+      subtitle={`Trends, learned service times and field feedback · last ${TREND_WEEKS} weeks`}
+      actions={<DemoToggle />}
+    >
+      <details className="card" style={{ marginBottom: "var(--space-4)" }}>
+        <summary
+          className="small"
+          style={{ cursor: "pointer", fontWeight: "var(--weight-semibold)" as never }}
+        >
           How to read this
         </summary>
-        <p className="muted small" style={{ margin: "8px 0 0" }}>
+        <p className="muted small" style={{ margin: "var(--space-2) 0 0" }}>
           These figures are built from completion history over the last 6 weeks.
           Service times are learned per store and task profile — the same store
           can take different times depending on the visit&apos;s tasks. Because
@@ -196,12 +181,21 @@ function AnalyticsPage() {
       </details>
 
       {error && <div className="banner banner-error">{error}</div>}
-      {loading && <p className="muted">Loading…</p>}
+      {loading && (
+        <div className="kpi-row">
+          {Array.from({ length: 5 }, (_, i) => (
+            <Card key={i}>
+              <Skeleton width="60%" height={12} />
+              <Skeleton width="40%" height={28} style={{ marginTop: "var(--space-2)" }} />
+            </Card>
+          ))}
+        </div>
+      )}
 
       {reports && thisWeek && (
         <>
           <div className="kpi-row">
-            <Kpi
+            <KpiCard
               label="Stops completed"
               value={`${thisWeek.stops_completed} / ${thisWeek.stops_planned}`}
               sub={
@@ -210,7 +204,7 @@ function AnalyticsPage() {
                   : "this week"
               }
             />
-            <Kpi
+            <KpiCard
               label="On-time completions"
               value={
                 thisWeek.on_time.on_time_rate !== null
@@ -224,17 +218,17 @@ function AnalyticsPage() {
               }
               note="ETAs seed from a 45-min default until a store has enough visits to be learned from history. Accuracy improves as more stores are modelled."
             />
-            <Kpi
+            <KpiCard
               label="Tours done"
               value={String(thisWeek.tours.done)}
               sub={`${thisWeek.tours.in_progress} in progress`}
             />
-            <Kpi
+            <KpiCard
               label="Service times learned"
               value={stores ? `${learned.length} / ${stores.length}` : "—"}
               sub="stores modelled from history"
             />
-            <Kpi
+            <KpiCard
               label="Feedback reports"
               value={feedback ? String(feedback.length) : "—"}
               sub={
@@ -245,14 +239,12 @@ function AnalyticsPage() {
             />
           </div>
 
-          <div className="card">
-            <h2>Six-week trend</h2>
+          <Card title="Six-week trend" style={{ marginBottom: "var(--space-4)" }}>
             {trend && <WeeklyTrendChart weeks={trend} />}
-          </div>
+          </Card>
 
           <div className="split">
-            <div className="card">
-              <h2>Learned service times</h2>
+            <Card title="Learned service times">
               <p className="muted small" style={{ marginTop: 0 }}>
                 Durations modelled from completion history, per store <em>and</em>{" "}
                 service profile — the same store can take a different time
@@ -265,73 +257,87 @@ function AnalyticsPage() {
                 accumulates.
               </p>
               {serviceRows.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>
-                  Nothing learned yet — recompute after the first completed weeks.
-                </p>
+                <EmptyState
+                  title="Nothing learned yet"
+                  hint="Recompute after the first completed weeks."
+                />
               ) : (
-                <div className="table-wrap">
-                  <table className="data">
-                    <thead>
-                      <tr>
-                        <th>Store</th>
-                        <th>Service</th>
-                        <th className="num">Default</th>
-                        <th className="num">Learned</th>
-                        <th className="num">Δ</th>
-                        <th className="num">Samples</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {serviceRows.map(({ store, service, samples, base, learned, delta }) => {
-                        const provisional = samples < 3;
-                        return (
-                          <tr key={`${store.id}-${service}`}>
-                            <td>
-                              <Link href={`/stores/${store.id}`}>{store.name}</Link>
-                            </td>
-                            <td>{service}</td>
-                            <td className="num">{base} min</td>
-                            <td className="num">
-                              <strong>{learned} min</strong>
-                              {provisional && (
-                                <span
-                                  className="muted"
-                                  style={{ fontSize: 11, marginLeft: 6 }}
-                                >
-                                  provisional
-                                </span>
-                              )}
-                            </td>
-                            <td
-                              className={provisional ? "num muted" : "num"}
-                              style={provisional ? { fontWeight: 300 } : undefined}
-                            >
-                              {delta >= 0 ? "+" : ""}
-                              {delta} min
-                            </td>
-                            <td className="num">{samples}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>Store</Th>
+                      <Th>Service</Th>
+                      <Th numeric>Default</Th>
+                      <Th numeric>Learned</Th>
+                      <Th numeric>Δ</Th>
+                      <Th numeric>Samples</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {serviceRows.map(({ store, service, samples, base, learned, delta }) => {
+                      const provisional = samples < 3;
+                      return (
+                        <tr key={`${store.id}-${service}`}>
+                          <Td>
+                            <Link href={`/stores/${store.id}`}>{store.name}</Link>
+                          </Td>
+                          <Td>{service}</Td>
+                          <Td numeric>{base} min</Td>
+                          <Td numeric>
+                            <strong>{learned} min</strong>
+                            {provisional && (
+                              <span
+                                className="muted"
+                                style={{
+                                  fontSize: "var(--text-xs)",
+                                  marginLeft: "var(--space-2)",
+                                }}
+                              >
+                                provisional
+                              </span>
+                            )}
+                          </Td>
+                          <Td
+                            numeric
+                            className={provisional ? "muted" : undefined}
+                            style={
+                              provisional
+                                ? { fontWeight: "var(--weight-regular)" as never }
+                                : undefined
+                            }
+                          >
+                            {delta >= 0 ? "+" : ""}
+                            {delta} min
+                          </Td>
+                          <Td numeric>{samples}</Td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
               )}
-            </div>
+            </Card>
 
-            <div className="card">
-              <h2>Field feedback</h2>
+            <Card title="Field feedback">
               {tagCounts.length === 0 ? (
-                <p className="muted" style={{ margin: 0 }}>
-                  No feedback reported yet.
-                </p>
+                <EmptyState title="No feedback reported yet" />
               ) : (
                 <>
-                  <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+                  <div
+                    style={{
+                      display: "grid",
+                      gap: "var(--space-2)",
+                      marginBottom: "var(--space-3)",
+                    }}
+                  >
                     {tagCounts.map(([tag, count]) => (
                       <div
                         key={tag}
-                        style={{ display: "flex", alignItems: "center", gap: 8 }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "var(--space-2)",
+                        }}
                       >
                         <span className="small" style={{ width: 150, flexShrink: 0 }}>
                           {tagLabel(tag)}
@@ -339,18 +345,18 @@ function AnalyticsPage() {
                         <span
                           aria-hidden
                           style={{
-                            height: 10,
+                            height: "var(--space-2)",
                             width: `${(count / maxTagCount) * 60}%`,
-                            minWidth: 4,
-                            borderRadius: 3,
-                            background: "#1e40af",
+                            minWidth: "var(--space-1)",
+                            borderRadius: "var(--radius-sm)",
+                            background: "var(--color-brand)",
                           }}
                         />
                         <span className="small muted">{count}</span>
                       </div>
                     ))}
                   </div>
-                  <h3 className="small" style={{ margin: "0 0 4px" }}>
+                  <h3 className="small" style={{ margin: "0 0 var(--space-1)" }}>
                     Latest notes
                   </h3>
                   {latestNotes.length === 0 ? (
@@ -361,7 +367,10 @@ function AnalyticsPage() {
                     latestNotes.map((f) => (
                       <div
                         key={f.id}
-                        style={{ borderTop: "1px solid var(--border)", padding: "8px 0" }}
+                        style={{
+                          borderTop: "1px solid var(--color-border)",
+                          padding: "var(--space-2) 0",
+                        }}
                       >
                         <div className="small">
                           <strong>{f.employee ?? "unknown"}</strong>{" "}
@@ -387,7 +396,7 @@ function AnalyticsPage() {
                   )}
                 </>
               )}
-            </div>
+            </Card>
           </div>
         </>
       )}

@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import ProvenanceBadge from "@/components/ProvenanceBadge";
+import { StatusChip } from "@/components/ui";
 import { Protected, useAuth } from "@/lib/auth";
 import {
   api,
@@ -84,26 +85,25 @@ function StoreDetailPage() {
   const recurring = tagCounts.filter(([, count]) => count >= 3);
 
   return (
-    <AppShell>
-      <div className="page-head">
-        <div>
-          <div className="small" style={{ marginBottom: 2 }}>
-            <Link href="/stores">Stores</Link>
-          </div>
-          <h1>{store.name}</h1>
-          <div className="muted small">
-            {address || "no address"} <ProvenanceBadge store={store} />
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <AppShell
+      title={store.name}
+      subtitle={
+        <>
+          <Link href="/stores">Stores</Link> · {address || "no address"}{" "}
+          <ProvenanceBadge store={store} />
+        </>
+      }
+      actions={
+        <>
           <DemoToggle />
           {store.attributes_complete ? (
-            <span className="badge badge-done">facts complete</span>
+            <StatusChip status="done" label="facts complete" />
           ) : (
-            <span className="badge badge-in_progress">facts missing</span>
+            <StatusChip status="in_progress" label="facts missing" />
           )}
-        </div>
-      </div>
+        </>
+      }
+    >
 
       {error && <div className="banner banner-error">{error}</div>}
 

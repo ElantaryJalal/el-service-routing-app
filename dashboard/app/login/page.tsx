@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Button, Card, Input } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { ApiError } from "@/lib/api";
 
@@ -33,48 +34,39 @@ export default function LoginPage() {
 
   return (
     <div className="login-wrap">
-      <div className="card login-card">
+      <Card className="login-card">
         <h1>EL Service · Office</h1>
         <p className="muted small" style={{ marginTop: 0 }}>
           Sign in with your staff account.
         </p>
         <form onSubmit={onSubmit}>
-          <div className="field">
-            <label htmlFor="email">Email</label>
-            <input
-              id="email"
-              className="input"
-              type="email"
-              autoComplete="username"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="password">Password</label>
-            <input
-              id="password"
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
+          <Input
+            label="Email"
+            type="email"
+            autoComplete="username"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <Input
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
           {error && <p className="form-error">{error}</p>}
-          <button
-            className="btn btn-primary"
+          <Button
+            variant="primary"
             type="submit"
-            disabled={busy}
-            style={{ width: "100%", justifyContent: "center" }}
+            loading={busy}
+            style={{ width: "100%" }}
           >
-            {busy ? <span className="spinner" /> : null}
             Sign in
-          </button>
+          </Button>
         </form>
-      </div>
+      </Card>
     </div>
   );
 }

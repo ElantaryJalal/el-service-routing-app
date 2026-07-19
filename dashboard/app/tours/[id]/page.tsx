@@ -70,23 +70,23 @@ function TourWorkspace() {
   const current = stepIndex(tour);
 
   return (
-    <AppShell>
-      <div className="page-head">
-        <div>
-          <div className="small" style={{ marginBottom: 2 }}>
-            <Link href="/tours">Tours</Link> <span className="muted">/ #{tour.id}</span>
-          </div>
-          <h1 style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {tour.customer}
-            <StatusBadge status={tour.status} />
-          </h1>
-          <div className="muted small">
-            KW {tour.calendar_week} · {tour.date_from} → {tour.date_to}
-          </div>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+    <AppShell
+      title={
+        <span style={{ display: "inline-flex", gap: "var(--space-3)", alignItems: "center" }}>
+          {tour.customer}
+          <StatusBadge status={tour.status} />
+        </span>
+      }
+      subtitle={
+        <>
+          <Link href="/tours">Tours</Link> / #{tour.id} · KW {tour.calendar_week} ·{" "}
+          {tour.date_from} → {tour.date_to}
+        </>
+      }
+      actions={
+        <>
           {(tour.status === "in_progress" || tour.status === "done") && (
-            <Link className="btn btn-sm" href={`/tours/${tour.id}/proof`}>
+            <Link className="ui-btn ui-btn-secondary ui-btn-sm" href={`/tours/${tour.id}/proof`}>
               Proof of work
             </Link>
           )}
@@ -100,8 +100,9 @@ function TourWorkspace() {
               </span>
             ))}
           </div>
-        </div>
-      </div>
+        </>
+      }
+    >
 
       {tour.status === "draft" ? (
         readOnly ? (
