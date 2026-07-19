@@ -39,7 +39,7 @@ import { tourCache } from '../src/state/tourCache';
 import { useOutboxStatus } from '../src/state/useOutboxStatus';
 
 import { Button, SyncState } from '../src/components/ui';
-import { color as tk } from '../src/theme';
+import { color as tk, shadow } from '../src/theme';
 
 /** Marker colour for stops already serviced (day colour otherwise). */
 const COMPLETED_GREY = tk.textFaint;
@@ -543,7 +543,11 @@ function Chip({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
+    <Pressable
+      style={[styles.chip, active && styles.chipActive]}
+      onPress={onPress}
+      hitSlop={8}
+    >
       {color && <View style={[styles.chipDot, { backgroundColor: color }]} />}
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
@@ -767,11 +771,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     padding: 16,
     gap: 10,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    ...shadow.md,
   },
   detailHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   actionRow: { flexDirection: 'row', gap: 8 },

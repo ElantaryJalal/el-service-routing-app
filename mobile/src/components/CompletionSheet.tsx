@@ -337,6 +337,7 @@ function OptionButton({
     <Pressable
       style={[styles.option, active && styles.optionActive]}
       onPress={onPress}
+      hitSlop={6}
     >
       <Text style={[styles.optionText, active && styles.optionTextActive]}>
         {label}

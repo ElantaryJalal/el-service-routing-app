@@ -52,7 +52,8 @@ UI into a traffic light.
 
 Semantic aliases: `--color-bg`, `--color-surface`, `--color-border`,
 `--color-border-strong`, `--color-text`, `--color-text-muted`,
-`--color-text-faint`.
+`--color-text-faint`, `--color-soft` (chip fills), `--color-scrim`
+(sheet backdrops).
 
 ### Brand accent (one, deep, confident)
 
@@ -64,19 +65,21 @@ Semantic aliases: `--color-bg`, `--color-surface`, `--color-border`,
 | `--color-brand-ring` | `#dbe5fb` | soft focus halo |
 | `--color-on-brand` | `#ffffff` | text/icons on brand |
 
-No second decorative accent exists. The legacy `--accent: #d97706` variable in
-`globals.css` is deprecated and unused — do not adopt it.
+No second decorative accent exists.
 
 ### Status (lifecycle) — used identically in both apps
 
 | Status | Strong | Soft fill |
 | --- | --- | --- |
-| draft | `#64748b` | `#eef1f5` |
+| draft | `#475569` | `#eef1f5` |
 | planned | `#1d4ed8` | `#e5edff` |
 | assigned | `#7c3aed` | `#f1e8ff` |
-| in progress | `#b45309` | `#fdf0dd` |
-| done | `#15803d` | `#e4f5ea` |
-| overdue / problem | `#dc2626` | `#fdf1f1` |
+| in progress | `#92400e` | `#fdf0dd` |
+| done | `#166534` | `#e4f5ea` |
+| overdue / problem | `#b91c1c` | `#fdf1f1` |
+
+Every strong-on-soft pair clears WCAG 4.5:1 at chip size (verified by the
+consistency check script; keep it that way when touching values).
 
 ### Feedback (banners, errors, sync notices)
 
@@ -118,8 +121,28 @@ Weights: regular 400 · medium 550 · semibold 650 · bold 700 (RN maps these to
   resting cards, `--shadow-md` only for things that float (popovers, sheets).
   Never stack heavy shadows to signal importance.
 - **Motion:** `--duration-fast` 150ms for hovers/presses, `--duration-base`
-  200ms for reveals/sheet slides, standard easing. No springs, no bounces; the
-  global `prefers-reduced-motion` kill-switch stays.
+  200ms for reveals/sheet slides, `--duration-slow` 1200ms only for the
+  skeleton pulse, standard easing. No springs, no bounces; the global
+  `prefers-reduced-motion` kill-switch stays.
+- **Touch:** `--size-touch` 48px minimum tap target on the field app
+  (compact overlay chips add `hitSlop` to reach it).
+
+## Components
+
+Both apps compose screens from a shared component vocabulary built on the
+tokens — never restyle these per screen:
+
+- **Office:** `dashboard/components/ui/` (Button, Card, StatusChip, Table,
+  Input/Select/Textarea, KpiCard, EmptyState, Skeleton/Spinner, Toast,
+  PageShell). Preview at `/design`. One primary Button per view — the
+  component warns in dev when violated.
+- **Field:** `mobile/src/components/ui/` (Button, StatusChip, StopCard,
+  ActionBar, Input, SyncState, EmptyState, Loading). Preview at `/design`.
+  One primary action per screen, thumb-reachable.
+
+The status vocabulary lives in `dashboard/components/ui/status.ts` and
+`mobile/src/components/ui/StatusChip.tsx` — same six statuses, same labels,
+same token colors; the consistency check enforces it.
 
 ## Using the tokens
 

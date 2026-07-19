@@ -17,7 +17,6 @@
   --primary: var(--color-brand);
   --primary-hover: var(--color-brand-hover);
   --on-primary: var(--color-on-brand);
-  --accent: #d97706; /* deprecated: unassigned amber; use status/warning tokens */
   --danger: var(--color-danger);
   --ok: var(--color-success);
 
@@ -54,6 +53,11 @@ a {
 }
 a:hover {
   text-decoration: underline;
+}
+a:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 h1 {
@@ -366,18 +370,18 @@ table.data tr.clickable {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.4);
+  border: 2px solid var(--color-border);
   border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   vertical-align: -2px;
 }
 .btn .spinner {
-  border-color: rgba(0, 0, 0, 0.15);
+  border-color: var(--color-border-strong);
   border-top-color: currentColor;
 }
 .btn-primary .spinner {
-  border-color: rgba(255, 255, 255, 0.35);
+  border-color: var(--color-brand-ring);
   border-top-color: var(--color-on-brand);
 }
 @keyframes spin {
@@ -478,5 +482,5 @@ table.data tr.clickable {
   color: var(--color-on-brand);
   font-weight: 700;
   font-size: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
 }

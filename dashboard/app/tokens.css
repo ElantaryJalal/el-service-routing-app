@@ -31,23 +31,23 @@
   --el-blue-900: #1a3a9e;
 
   /* ---- primitives: muted status hues ---- */
-  --el-green-700: #15803d;
+  --el-green-700: #166534;
   --el-green-800: #135e2c;
   --el-green-100: #e4f5ea;
   --el-green-50: #eefaf1;
   --el-green-200: #b9e4c5;
-  --el-amber-700: #b45309;
+  --el-amber-700: #92400e;
   --el-amber-900: #7a4d06;
   --el-amber-100: #fdf0dd;
   --el-amber-50: #fff8ec;
   --el-amber-200: #f0d49b;
-  --el-red-600: #dc2626;
+  --el-red-600: #b91c1c;
   --el-red-900: #8f1d1d;
   --el-red-50: #fdf1f1;
   --el-red-200: #eebbbb;
   --el-violet-600: #7c3aed;
   --el-violet-100: #f1e8ff;
-  --el-slate-500: #64748b;
+  --el-slate-500: #475569;
   --el-slate-100: #eef1f5;
 
   /* ---- semantic: surfaces & text ---- */
@@ -58,6 +58,8 @@
   --color-text: var(--el-gray-900);
   --color-text-muted: var(--el-gray-500);
   --color-text-faint: var(--el-gray-400); /* placeholders, disabled */
+  --color-soft: var(--el-gray-100); /* chip/soft fills */
+  --color-scrim: #00000088; /* modal/sheet backdrop */
 
   /* ---- semantic: the ONE brand accent ---- */
   --color-brand: var(--el-blue-800);

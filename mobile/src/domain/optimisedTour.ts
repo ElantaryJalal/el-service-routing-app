@@ -5,6 +5,7 @@
  * we cache for offline use — see src/state/tourCache.ts.
  */
 import type { DateMode, StopDetail } from '../api/client';
+import { color } from '../theme';
 import type { components } from '../api/types';
 
 type OptimiseResult = components['schemas']['OptimiseResult'];
@@ -65,16 +66,9 @@ export interface OptimisedTour {
   cached_at: number;
 }
 
-/** Distinct, high-contrast colours cycled per assigned day. */
-const DAY_COLORS = [
-  '#1f6feb', // blue
-  '#e8590c', // orange
-  '#2f9e44', // green
-  '#9c36b5', // purple
-  '#e03131', // red
-  '#0c8599', // teal
-  '#f08c00', // amber
-];
+/** Distinct, high-contrast colours cycled per assigned day — the shared
+ * day scale from the design tokens (see DESIGN.md). */
+const DAY_COLORS = color.day;
 
 export function dayColor(dayIndex: number): string {
   return DAY_COLORS[dayIndex % DAY_COLORS.length];

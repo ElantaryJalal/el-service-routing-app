@@ -6,8 +6,8 @@
  * dashboard/app/tokens.css for the office dashboard; change them together.
  * See DESIGN.md at the repo root.
  *
- * Foundation only for now: no screen imports this yet. New/touched styles
- * should reference these tokens instead of literal values.
+ * Every screen and src/components/ui/* style from this module — never from
+ * literal values.
  */
 
 import { Platform, type TextStyle, type ViewStyle } from 'react-native';
@@ -56,30 +56,30 @@ export const color = {
 
   /* tour/stop lifecycle status */
   status: {
-    draft: '#64748b',
+    draft: '#475569',
     draftSoft: '#eef1f5',
     planned: '#1d4ed8',
     plannedSoft: '#e5edff',
     assigned: '#7c3aed',
     assignedSoft: '#f1e8ff',
-    inProgress: '#b45309',
+    inProgress: '#92400e',
     inProgressSoft: '#fdf0dd',
-    done: '#15803d',
+    done: '#166534',
     doneSoft: '#e4f5ea',
-    overdue: '#dc2626',
+    overdue: '#b91c1c',
     overdueSoft: '#fdf1f1',
   },
 
   /* feedback (banners, form errors, sync notices) */
-  success: '#15803d',
+  success: '#166534',
   successBg: '#eefaf1',
   successBorder: '#b9e4c5',
   successText: '#135e2c',
-  warning: '#b45309',
+  warning: '#92400e',
   warningBg: '#fff8ec',
   warningBorder: '#f0d49b',
   warningText: '#7a4d06',
-  danger: '#dc2626',
+  danger: '#b91c1c',
   dangerBg: '#fdf1f1',
   dangerBorder: '#eebbbb',
   dangerText: '#8f1d1d',

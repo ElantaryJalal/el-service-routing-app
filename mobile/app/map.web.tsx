@@ -622,7 +622,11 @@ function Chip({
   onPress: () => void;
 }) {
   return (
-    <Pressable style={[styles.chip, active && styles.chipActive]} onPress={onPress}>
+    <Pressable
+      style={[styles.chip, active && styles.chipActive]}
+      onPress={onPress}
+      hitSlop={8}
+    >
       {color && <View style={[styles.chipDot, { backgroundColor: color }]} />}
       <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
     </Pressable>
