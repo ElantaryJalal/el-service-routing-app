@@ -20,6 +20,9 @@ dependencies = [
     "bcrypt>=4.0,<4.1",
     # Commit-time store resolution (fuzzy address matching)
     "rapidfuzz",
+    # Plan export (GET /tours/{id}/plan/export)
+    "openpyxl",
+    "reportlab",
 ]
 
 [project.optional-dependencies]

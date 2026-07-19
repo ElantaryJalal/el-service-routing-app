@@ -8,6 +8,8 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
+    Response,
     UploadFile,
 )
 from geoalchemy2.elements import WKTElement
@@ -34,6 +36,7 @@ from app.schemas.stop import (
     StopDetail,
 )
 from app.schemas.tour import TourAssignRequest, TourCreate, TourRead, TourUpdate
+from app.services import plan_export
 from app.services.extraction import extract_tour, normalize_media_type
 from app.services.extraction_local import extract_tour_local
 from app.services.extraction_ollama import extract_tour_ollama
@@ -796,6 +799,32 @@ def get_plan(
         raise HTTPException(status_code=404, detail="tour not found")
     ensure_tour_visible(user, tour)
     return current_plan(db, tour)
+
+
+@router.get("/{tour_id}/plan/export", dependencies=[_READERS])
+def export_plan(
+    tour_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    format: Annotated[str, Query(pattern="^(pdf|xlsx)$")] = "pdf",
+) -> Response:
+    """The plan as a handout: PDF for printing, XLSX for the office.
+
+    Same day-by-day view as the plan board; stops without an assigned day
+    appear in a trailing "Unscheduled" group so the export never hides work.
+    """
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    if format == "xlsx":
+        data, media = plan_export.build_xlsx(db, tour), plan_export.XLSX_MEDIA
+    else:
+        data, media = plan_export.build_pdf(db, tour), plan_export.PDF_MEDIA
+    filename = f"tour-{tour.id}-kw{tour.calendar_week}-plan.{format}"
+    return Response(
+        content=data,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/{tour_id}/assign", response_model=TourRead, dependencies=[_PLANNERS])

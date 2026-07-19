@@ -7,6 +7,7 @@ import AppShell from "@/components/AppShell";
 import DraftEditor from "@/components/DraftEditor";
 import PlanBoard from "@/components/PlanBoard";
 import StatusBadge from "@/components/StatusBadge";
+import { Button } from "@/components/ui";
 import { Protected, useAuth } from "@/lib/auth";
 import { api, type CommitResult, type Tour, type User } from "@/lib/api";
 
@@ -31,8 +32,26 @@ function TourWorkspace() {
   const [workers, setWorkers] = useState<User[]>([]);
   const [duplicates, setDuplicates] = useState<number[][]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
 
   const readOnly = user?.role === "manager";
+
+  async function exportPlan(format: "pdf" | "xlsx") {
+    setExporting(format);
+    try {
+      const { blob, filename } = await api.exportPlan(tourId, format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setExporting(null);
+    }
+  }
 
   useEffect(() => {
     if (!Number.isFinite(tourId)) return;
@@ -85,6 +104,26 @@ function TourWorkspace() {
       }
       actions={
         <>
+          {tour.status !== "draft" && (
+            <>
+              <Button
+                size="sm"
+                loading={exporting === "pdf"}
+                onClick={() => exportPlan("pdf")}
+                title="Download the plan as a printable PDF handout"
+              >
+                Export PDF
+              </Button>
+              <Button
+                size="sm"
+                loading={exporting === "xlsx"}
+                onClick={() => exportPlan("xlsx")}
+                title="Download the plan as an Excel sheet"
+              >
+                Export Excel
+              </Button>
+            </>
+          )}
           {(tour.status === "in_progress" || tour.status === "done") && (
             <Link className="ui-btn ui-btn-secondary ui-btn-sm" href={`/tours/${tour.id}/proof`}>
               Proof of work

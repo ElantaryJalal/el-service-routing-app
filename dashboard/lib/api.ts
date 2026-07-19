@@ -373,6 +373,27 @@ export const api = {
   optimise: (tourId: number) =>
     request<Plan>(`/tours/${tourId}/optimise`, { method: "POST" }),
   getPlan: (tourId: number) => request<Plan>(`/tours/${tourId}/plan`),
+  /** Download the plan as a handout; resolves to the served filename. */
+  exportPlan: async (
+    tourId: number,
+    format: "pdf" | "xlsx",
+  ): Promise<{ blob: Blob; filename: string }> => {
+    const headers = new Headers();
+    const token = getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const resp = await fetch(
+      `${API_BASE}/tours/${tourId}/plan/export?format=${format}`,
+      { headers },
+    );
+    if (!resp.ok) throw new ApiError(resp.status, resp.statusText);
+    const match = /filename="([^"]+)"/.exec(
+      resp.headers.get("content-disposition") ?? "",
+    );
+    return {
+      blob: await resp.blob(),
+      filename: match?.[1] ?? `tour-${tourId}-plan.${format}`,
+    };
+  },
   listStops: (tourId: number) => request<StopDetail[]>(`/tours/${tourId}/stops`),
   assign: (tourId: number, userId: number) =>
     request<Tour>(`/tours/${tourId}/assign`, {
