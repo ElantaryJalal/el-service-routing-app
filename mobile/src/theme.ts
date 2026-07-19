@@ -164,7 +164,13 @@ export const shadow = {
 export const duration = {
   fast: 150, // presses, toggles
   base: 200, // sheet slides, reveals
+  slow: 1200, // skeleton pulse only
 } as const;
 
-export const theme = { color, font, space, radius, shadow, duration } as const;
+/* ---- interaction geometry ---- */
+export const size = {
+  touch: 48, // minimum tap target
+} as const;
+
+export const theme = { color, font, space, radius, shadow, duration, size } as const;
 export default theme;

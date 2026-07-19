@@ -151,5 +151,9 @@
   /* ---- motion: short and quiet ---- */
   --duration-fast: 150ms; /* hovers, toggles */
   --duration-base: 200ms; /* reveals, sheet slides */
+  --duration-slow: 1200ms; /* skeleton pulse only */
   --ease-standard: ease;
+
+  /* ---- interaction geometry ---- */
+  --size-touch: 48px; /* minimum tap target (field app; web map controls) */
 }

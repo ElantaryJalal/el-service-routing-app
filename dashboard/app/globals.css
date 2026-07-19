@@ -1,6 +1,7 @@
 /* EL Service office — data-dense, light, status-color driven. */
 
 @import "./tokens.css";
+@import "./ui.css";
 
 /* Legacy aliases: these predate tokens.css and every rule below still uses
  * them. They now resolve to the token layer (identical values — introducing
