@@ -205,9 +205,13 @@ export interface StoreVisit {
 export interface Feedback {
   id: number;
   store_id: number | null;
+  /** Display identity — never show the raw store id to people. */
+  store_name: string | null;
+  store_city: string | null;
   tour_id: number | null;
   stop_id: number | null;
   employee: string | null;
+  is_demo: boolean;
   tags: string[];
   note: string | null;
   photo_path: string | null;
@@ -379,25 +383,40 @@ export const api = {
     request<Tour>(`/tours/${tourId}/unassign`, { method: "POST" }),
 
   // reports
-  overview: (dateFrom?: string, dateTo?: string) =>
-    request<OverviewReport>(
-      `/reports/overview${dateFrom && dateTo ? `?date_from=${dateFrom}&date_to=${dateTo}` : ""}`,
-    ),
+  overview: (dateFrom?: string, dateTo?: string, includeDemo?: boolean) => {
+    const q = new URLSearchParams();
+    if (dateFrom && dateTo) {
+      q.set("date_from", dateFrom);
+      q.set("date_to", dateTo);
+    }
+    if (includeDemo) q.set("include_demo", "true");
+    const qs = q.toString();
+    return request<OverviewReport>(`/reports/overview${qs ? `?${qs}` : ""}`);
+  },
 
   // feedback
-  listFeedback: (params: { tourId?: number; stopId?: number }) => {
+  listFeedback: (params: {
+    tourId?: number;
+    stopId?: number;
+    includeDemo?: boolean;
+  }) => {
     const q = new URLSearchParams();
     if (params.tourId !== undefined) q.set("tour_id", String(params.tourId));
     if (params.stopId !== undefined) q.set("stop_id", String(params.stopId));
+    if (params.includeDemo) q.set("include_demo", "true");
     const qs = q.toString();
     return request<Feedback[]>(`/feedback${qs ? `?${qs}` : ""}`);
   },
 
   // stores
-  listStores: (needsAttributes?: boolean) =>
-    request<Store[]>(
-      `/stores${needsAttributes === undefined ? "" : `?needs_attributes=${needsAttributes}`}`,
-    ),
+  listStores: (needsAttributes?: boolean, includeDemo?: boolean) => {
+    const q = new URLSearchParams();
+    if (needsAttributes !== undefined)
+      q.set("needs_attributes", String(needsAttributes));
+    if (includeDemo) q.set("include_demo", "true");
+    const qs = q.toString();
+    return request<Store[]>(`/stores${qs ? `?${qs}` : ""}`);
+  },
   getStore: (id: number) => request<Store>(`/stores/${id}`),
   recomputeServiceTimes: () =>
     request<StoreServiceTime[]>("/stores/service-times/recompute", {

@@ -15,7 +15,7 @@ from collections.abc import Iterable
 from datetime import date, datetime
 from statistics import median
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -65,6 +65,11 @@ class ServiceRecord(Base):
     task_signature: Mapped[str] = mapped_column(String, nullable=False, default="")
     tasks_label: Mapped[str | None] = mapped_column(String)
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Seeded/simulated content (demo driver, seed scripts, e2e users) —
+    # excluded from management-facing queries unless explicitly requested.
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

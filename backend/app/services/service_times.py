@@ -89,6 +89,9 @@ class Observation:
     minutes: int
     task_signature: str
     tasks_label: str | None
+    # Carried from the stop so a rebuild never launders demo history into
+    # real-looking ledger rows.
+    is_demo: bool
 
 
 def _completed_day_groups(db: Session) -> list[list]:
@@ -103,6 +106,7 @@ def _completed_day_groups(db: Session) -> list[list]:
             Stop.sequence,
             Stop.store_id,
             Stop.completed_at,
+            Stop.is_demo,
             func.ST_X(Store.geom).label("lon"),
             func.ST_Y(Store.geom).label("lat"),
         )
@@ -174,6 +178,7 @@ def collect_observations(
                         minutes=int(round(service / 60)),
                         task_signature=signature,
                         tasks_label=label,
+                        is_demo=cur.is_demo,
                     )
                 )
 
@@ -224,6 +229,7 @@ def recompute_service_times(
                 task_signature=obs.task_signature,
                 tasks_label=obs.tasks_label,
                 duration_minutes=obs.minutes,
+                is_demo=obs.is_demo,
             )
         )
 

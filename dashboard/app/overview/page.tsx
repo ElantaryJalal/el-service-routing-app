@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import WeekLoadChart from "@/components/WeekLoadChart";
 import { Protected } from "@/lib/auth";
 import { api, type OverviewReport } from "@/lib/api";
@@ -55,6 +56,7 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
 }
 
 function OverviewPage() {
+  const showDemo = useShowDemo();
   const [weekOffset, setWeekOffset] = useState(0);
   const [report, setReport] = useState<OverviewReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,10 +72,10 @@ function OverviewPage() {
     setReport(null);
     setError(null);
     api
-      .overview(range.from, range.to)
+      .overview(range.from, range.to, showDemo)
       .then(setReport)
       .catch((e) => setError(String(e.message ?? e)));
-  }, [range]);
+  }, [range, showDemo]);
 
   const onTime = report?.on_time;
   const avgDelta = onTime?.average_delta_minutes;
@@ -88,7 +90,8 @@ function OverviewPage() {
             {fmtDay(range.to)}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <DemoToggle />
           <button className="btn btn-sm" onClick={() => setWeekOffset((w) => w - 1)}>
             ← Previous
           </button>

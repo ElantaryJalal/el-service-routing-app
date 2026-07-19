@@ -43,11 +43,11 @@ def _ensure_store_visible(db: Session, user: User, store_id: int) -> None:
 _ATTRIBUTE_FIELDS = {"size", "in_mall", "has_parking"}
 
 
-def _service_profiles(store: Store) -> list[ServiceProfileTimeRead]:
-    """Aggregate the store's ledger per task profile: the same store can take
+def _service_profiles(records: list) -> list[ServiceProfileTimeRead]:
+    """Aggregate a ledger slice per task profile: the same store can take
     a different time depending on which service the visit is for."""
     by_signature: dict[str, list] = {}
-    for record in store.service_records:
+    for record in records:
         by_signature.setdefault(record.task_signature, []).append(record)
     return [
         ServiceProfileTimeRead(
@@ -60,7 +60,7 @@ def _service_profiles(store: Store) -> list[ServiceProfileTimeRead]:
     ]
 
 
-def _store_read(db: Session, store: Store) -> StoreRead:
+def _store_read(db: Session, store: Store, *, include_demo: bool = False) -> StoreRead:
     lon, lat = (None, None)
     if store.geom is not None:
         lon, lat = db.execute(
@@ -68,6 +68,10 @@ def _store_read(db: Session, store: Store) -> StoreRead:
                 Store.id == store.id
             )
         ).one()
+    # Every displayed time aggregate derives from the (filtered) ledger, so
+    # demo-seeded services never inflate what the office sees. The learner's
+    # materialized columns (used by the optimiser) stay untouched.
+    records = [r for r in store.service_records if include_demo or not r.is_demo]
     return StoreRead(
         id=store.id,
         name=store.name,
@@ -85,12 +89,12 @@ def _store_read(db: Session, store: Store) -> StoreRead:
         hours_source=store.hours_source,
         default_tasks=store.default_tasks,
         default_service_minutes=store.default_service_minutes,
-        learned_service_minutes=store.learned_service_minutes,
-        service_time_samples=store.service_time_samples,
+        learned_service_minutes=learned_minutes([r.duration_minutes for r in records]),
+        service_time_samples=len(records),
         service_times_updated_at=store.service_times_updated_at,
-        service_times=_service_profiles(store),
-        total_service_minutes=sum(r.duration_minutes for r in store.service_records),
-        services_recorded=len(store.service_records),
+        service_times=_service_profiles(records),
+        total_service_minutes=sum(r.duration_minutes for r in records),
+        services_recorded=len(records),
         size=store.size,
         in_mall=store.in_mall,
         has_parking=store.has_parking,
@@ -104,10 +108,12 @@ def _store_read(db: Session, store: Store) -> StoreRead:
 def list_stores(
     db: Annotated[Session, Depends(get_db)],
     needs_attributes: bool | None = None,
+    include_demo: bool = False,
 ) -> list[StoreRead]:
     """The store catalog, A-Z, for the office view. needs_attributes=true
     filters to stores still missing a crowdsourced attribute (the "which
-    facts are we lacking" list); false filters to complete ones."""
+    facts are we lacking" list); false filters to complete ones. Time
+    aggregates exclude demo-seeded services unless include_demo is set."""
     query = select(Store).order_by(Store.name)
     missing = or_(
         Store.size.is_(None),
@@ -118,7 +124,9 @@ def list_stores(
         query = query.where(missing)
     elif needs_attributes is False:
         query = query.where(~missing)
-    return [_store_read(db, store) for store in db.scalars(query)]
+    return [
+        _store_read(db, store, include_demo=include_demo) for store in db.scalars(query)
+    ]
 
 
 @router.get("/suggest", response_model=list[StopSuggestion], dependencies=[_READERS])
@@ -246,12 +254,13 @@ def get_store(
     store_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: CurrentUser,
+    include_demo: bool = False,
 ) -> StoreRead:
     store = db.get(Store, store_id)
     if store is None:
         raise HTTPException(status_code=404, detail="store not found")
     _ensure_store_visible(db, user, store_id)
-    return _store_read(db, store)
+    return _store_read(db, store, include_demo=include_demo)
 
 
 @router.get(

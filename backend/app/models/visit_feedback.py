@@ -1,9 +1,9 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
@@ -50,6 +50,24 @@ class VisitFeedback(Base):
     # Client-generated idempotency key: offline sync may retry the same POST,
     # which must not create a second row.
     client_uuid: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    # Seeded/simulated content (demo driver, e2e users, "(Demo)" notes) —
+    # excluded from management-facing queries unless explicitly requested.
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    store: Mapped["Store | None"] = relationship()  # noqa: F821
+
+    # Feedback is shown to people, never as a raw store id: expose the store's
+    # display identity for the read schema (None when the store is gone).
+    @property
+    def store_name(self) -> str | None:
+        return self.store.name if self.store else None
+
+    @property
+    def store_city(self) -> str | None:
+        return self.store.city if self.store else None
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

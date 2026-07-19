@@ -30,9 +30,13 @@ class FeedbackRead(BaseModel):
 
     id: int
     store_id: int | None
+    # Display identity — feedback is shown to people, never as a raw store id.
+    store_name: str | None
+    store_city: str | None
     tour_id: int | None
     stop_id: int | None
     employee: str | None
+    is_demo: bool
     tags: list[str]
     note: str | None
     photo_path: str | None

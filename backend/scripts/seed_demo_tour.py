@@ -174,6 +174,7 @@ def main() -> None:
             date_to=date(2026, 7, 10),  # Fri
             employee="Demo Employee",
             status=TourStatus.planned,
+            is_demo=True,
         )
         db.add(tour)
         db.flush()
@@ -214,6 +215,7 @@ def main() -> None:
                 service_minutes=svc,
                 status="confirmed",
                 status_hint="pending",
+                is_demo=True,
             )
             db.add(stop)
             db.flush()
@@ -231,6 +233,7 @@ def main() -> None:
                 service_minutes=60,
                 status="confirmed",
                 status_hint="pending",
+                is_demo=True,
             )
         )
 

@@ -44,6 +44,7 @@ def overview(
     date_from: date | None = None,
     date_to: date | None = None,
     tolerance_minutes: Annotated[int, Query(ge=0, le=240)] = 30,
+    include_demo: bool = False,
 ) -> OverviewReport:
     """This-week snapshot: tour/stop completion counts, per-day load,
     punctuality vs. predicted ETA, and the markets still outstanding.
@@ -64,11 +65,13 @@ def overview(
     if (date_to - date_from).days > 31:
         raise HTTPException(status_code=422, detail="range is limited to 31 days")
 
-    tours = list(
-        db.scalars(
-            select(Tour).where(Tour.date_from <= date_to, Tour.date_to >= date_from)
-        )
+    tours_query = select(Tour).where(
+        Tour.date_from <= date_to, Tour.date_to >= date_from
     )
+    if not include_demo:
+        # Simulated weeks (demo driver, seeds) never count toward management KPIs.
+        tours_query = tours_query.where(Tour.is_demo.is_(False))
+    tours = list(db.scalars(tours_query))
     by_status = {status: 0 for status in TourStatus}
     for tour in tours:
         by_status[tour.status] += 1

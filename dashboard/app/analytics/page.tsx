@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import WeeklyTrendChart, { type WeekTrendPoint } from "@/components/WeeklyTrendChart";
 import { Protected } from "@/lib/auth";
 import { api, type Feedback, type OverviewReport, type Store } from "@/lib/api";
@@ -53,6 +54,7 @@ function Kpi({ label, value, sub }: { label: string; value: string; sub?: string
 const DEFAULT_SERVICE_MINUTES = 45;
 
 function AnalyticsPage() {
+  const showDemo = useShowDemo();
   const [reports, setReports] = useState<OverviewReport[] | null>(null);
   const [stores, setStores] = useState<Store[] | null>(null);
   const [feedback, setFeedback] = useState<Feedback[] | null>(null);
@@ -70,15 +72,18 @@ function AnalyticsPage() {
   );
 
   useEffect(() => {
-    Promise.all(weekRanges.map((r) => api.overview(r.from, r.to)))
+    Promise.all(weekRanges.map((r) => api.overview(r.from, r.to, showDemo)))
       .then(setReports)
       .catch((e) => setError(String(e.message ?? e)));
-    api.listStores().then(setStores).catch((e) => setError(String(e.message ?? e)));
     api
-      .listFeedback({})
+      .listStores(undefined, showDemo)
+      .then(setStores)
+      .catch((e) => setError(String(e.message ?? e)));
+    api
+      .listFeedback({ includeDemo: showDemo })
       .then(setFeedback)
       .catch((e) => setError(String(e.message ?? e)));
-  }, [weekRanges]);
+  }, [weekRanges, showDemo]);
 
   const trend: WeekTrendPoint[] | null =
     reports &&
@@ -157,6 +162,7 @@ function AnalyticsPage() {
             Trends, learned service times and field feedback · last {TREND_WEEKS} weeks
           </div>
         </div>
+        <DemoToggle />
       </div>
 
       {error && <div className="banner banner-error">{error}</div>}
@@ -327,11 +333,14 @@ function AnalyticsPage() {
                               timeStyle: "short",
                             })}
                           </span>
-                          {f.store_id !== null && (
-                            <>
-                              {" · "}
-                              <Link href={`/stores/${f.store_id}`}>store #{f.store_id}</Link>
-                            </>
+                          {" · "}
+                          {f.store_id !== null && f.store_name ? (
+                            <Link href={`/stores/${f.store_id}`}>
+                              {f.store_name}
+                              {f.store_city ? ` (${f.store_city})` : ""}
+                            </Link>
+                          ) : (
+                            <span className="muted">unknown store</span>
                           )}
                         </div>
                         <div className="small">{f.note}</div>

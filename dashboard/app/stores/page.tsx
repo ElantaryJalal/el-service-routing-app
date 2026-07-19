@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
+import DemoToggle, { useShowDemo } from "@/components/DemoToggle";
 import ProvenanceBadge from "@/components/ProvenanceBadge";
 import { Protected, useAuth } from "@/lib/auth";
 import { api, type Store } from "@/lib/api";
@@ -24,6 +25,7 @@ function fmtTotal(minutes: number): string {
 function StoresPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const showDemo = useShowDemo();
   const [stores, setStores] = useState<Store[] | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
@@ -35,10 +37,10 @@ function StoresPage() {
       filter === "all" ? undefined : filter === "needs" ? true : false;
     setStores(null);
     api
-      .listStores(needs)
+      .listStores(needs, showDemo)
       .then(setStores)
       .catch((e) => setError(String(e.message ?? e)));
-  }, [filter]);
+  }, [filter, showDemo]);
 
   async function recompute() {
     setRecomputing(true);
@@ -56,7 +58,7 @@ function StoresPage() {
       );
       const needs =
         filter === "all" ? undefined : filter === "needs" ? true : false;
-      setStores(await api.listStores(needs));
+      setStores(await api.listStores(needs, showDemo));
     } catch (e) {
       setError(String((e as Error).message ?? e));
     } finally {
@@ -68,7 +70,8 @@ function StoresPage() {
     <AppShell>
       <div className="page-head">
         <h1>Stores</h1>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <DemoToggle />
           {(user?.role === "dispatcher" || user?.role === "admin") && (
             <button
               className="btn btn-sm"

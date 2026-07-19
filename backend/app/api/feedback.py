@@ -13,7 +13,7 @@ from fastapi import (
 )
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import CurrentUser, ensure_tour_workable, require_role
 from app.config import settings
@@ -87,6 +87,9 @@ def create_feedback(
         note=payload.note,
         photo_path=payload.photo_path,
         client_uuid=payload.client_uuid,
+        # Test/demo accounts live on the e2e domain; anything they write (and
+        # anything on a demo tour) must never surface to management.
+        is_demo=user.email.endswith("@e2e.elservice.de") or stop.is_demo,
     )
     db.add(feedback)
     try:
@@ -110,15 +113,32 @@ def list_feedback(
     store_id: int | None = None,
     tour_id: int | None = None,
     stop_id: int | None = None,
+    include_demo: bool = False,
 ) -> list[VisitFeedback]:
     """List feedback, newest first, optionally filtered. Feedback is
-    append-only: there are deliberately no update/delete endpoints."""
-    query = select(VisitFeedback)
+    append-only: there are deliberately no update/delete endpoints.
+
+    Demo/seeded rows are excluded unless include_demo is set, and exact
+    duplicates (same store, author, note, and timestamp — offline-sync and
+    seed artefacts) collapse to a single entry.
+    """
+    query = select(VisitFeedback).options(selectinload(VisitFeedback.store))
     if store_id is not None:
         query = query.where(VisitFeedback.store_id == store_id)
     if tour_id is not None:
         query = query.where(VisitFeedback.tour_id == tour_id)
     if stop_id is not None:
         query = query.where(VisitFeedback.stop_id == stop_id)
+    if not include_demo:
+        query = query.where(VisitFeedback.is_demo.is_(False))
     query = query.order_by(VisitFeedback.created_at.desc(), VisitFeedback.id.desc())
-    return list(db.scalars(query).all())
+
+    rows: list[VisitFeedback] = []
+    seen: set[tuple] = set()
+    for row in db.scalars(query):
+        key = (row.store_id, row.employee, row.note, row.created_at)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(row)
+    return rows
