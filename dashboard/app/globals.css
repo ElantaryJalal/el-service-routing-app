@@ -1,31 +1,35 @@
 /* EL Service office — data-dense, light, status-color driven. */
 
+@import "./tokens.css";
+
+/* Legacy aliases: these predate tokens.css and every rule below still uses
+ * them. They now resolve to the token layer (identical values — introducing
+ * the aliases changed no pixels). New CSS should reference the --color-* /
+ * --text-* / --space-* tokens directly; see DESIGN.md. */
 :root {
-  --bg: #f6f8fb;
-  --surface: #ffffff;
-  --border: #dde4ee;
-  --border-strong: #c3cede;
-  --text: #16233a;
-  --text-muted: #5b6b84;
-  --primary: #1e40af;
-  --primary-hover: #1a3a9e;
-  --on-primary: #ffffff;
-  --accent: #d97706;
-  --danger: #dc2626;
-  --ok: #15803d;
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --border: var(--color-border);
+  --border-strong: var(--color-border-strong);
+  --text: var(--color-text);
+  --text-muted: var(--color-text-muted);
+  --primary: var(--color-brand);
+  --primary-hover: var(--color-brand-hover);
+  --on-primary: var(--color-on-brand);
+  --accent: #d97706; /* deprecated: unassigned amber; use status/warning tokens */
+  --danger: var(--color-danger);
+  --ok: var(--color-success);
 
-  --status-draft: #64748b;
-  --status-planned: #1d4ed8;
-  --status-assigned: #7c3aed;
-  --status-in_progress: #b45309;
-  --status-done: #15803d;
+  --status-draft: var(--color-status-draft);
+  --status-planned: var(--color-status-planned);
+  --status-assigned: var(--color-status-assigned);
+  --status-in_progress: var(--color-status-in-progress);
+  --status-done: var(--color-status-done);
 
-  --radius: 8px;
-  --shadow: 0 1px 2px rgba(22, 35, 58, 0.06), 0 1px 4px rgba(22, 35, 58, 0.08);
-  --font:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius: var(--radius-md);
+  --shadow: var(--shadow-sm);
+  --font: var(--font-sans);
+  --mono: var(--font-mono);
 }
 
 * {

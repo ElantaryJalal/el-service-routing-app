@@ -1,0 +1,155 @@
+/* EL Service design tokens — web expression.
+ *
+ * Single source of truth for color, type, spacing, radius, elevation, and
+ * motion in the office dashboard. The same values (same names, same meaning)
+ * live in mobile/src/theme.ts for the field app; change them together.
+ * See DESIGN.md at the repo root.
+ *
+ * Two layers:
+ *   primitives  --el-*      raw values; never referenced from component CSS
+ *   semantic    --color-* … purpose-named aliases; the only layer rules use
+ */
+
+:root {
+  /* ---- primitives: cool neutral grays ---- */
+  --el-white: #ffffff;
+  --el-gray-50: #f6f8fb;
+  --el-gray-100: #eef2f7;
+  --el-gray-200: #dde4ee;
+  --el-gray-300: #c3cede;
+  --el-gray-400: #9aa4b2;
+  --el-gray-500: #5b6b84;
+  --el-gray-700: #33465f;
+  --el-gray-900: #16233a;
+
+  /* ---- primitives: brand blue ramp ---- */
+  --el-blue-50: #e8eefc;
+  --el-blue-100: #dbe5fb;
+  --el-blue-200: #bccff7;
+  --el-blue-600: #1d4ed8;
+  --el-blue-800: #1e40af;
+  --el-blue-900: #1a3a9e;
+
+  /* ---- primitives: muted status hues ---- */
+  --el-green-700: #15803d;
+  --el-green-800: #135e2c;
+  --el-green-100: #e4f5ea;
+  --el-green-50: #eefaf1;
+  --el-green-200: #b9e4c5;
+  --el-amber-700: #b45309;
+  --el-amber-900: #7a4d06;
+  --el-amber-100: #fdf0dd;
+  --el-amber-50: #fff8ec;
+  --el-amber-200: #f0d49b;
+  --el-red-600: #dc2626;
+  --el-red-900: #8f1d1d;
+  --el-red-50: #fdf1f1;
+  --el-red-200: #eebbbb;
+  --el-violet-600: #7c3aed;
+  --el-violet-100: #f1e8ff;
+  --el-slate-500: #64748b;
+  --el-slate-100: #eef1f5;
+
+  /* ---- semantic: surfaces & text ---- */
+  --color-bg: var(--el-gray-50);
+  --color-surface: var(--el-white);
+  --color-border: var(--el-gray-200);
+  --color-border-strong: var(--el-gray-300);
+  --color-text: var(--el-gray-900);
+  --color-text-muted: var(--el-gray-500);
+  --color-text-faint: var(--el-gray-400); /* placeholders, disabled */
+
+  /* ---- semantic: the ONE brand accent ---- */
+  --color-brand: var(--el-blue-800);
+  --color-brand-hover: var(--el-blue-900);
+  --color-brand-soft: var(--el-blue-50); /* active nav, selected rows */
+  --color-brand-ring: var(--el-blue-100); /* soft focus halo */
+  --color-on-brand: var(--el-white);
+
+  /* ---- semantic: tour/stop lifecycle status ---- */
+  --color-status-draft: var(--el-slate-500);
+  --color-status-draft-soft: var(--el-slate-100);
+  --color-status-planned: var(--el-blue-600);
+  --color-status-planned-soft: #e5edff;
+  --color-status-assigned: var(--el-violet-600);
+  --color-status-assigned-soft: var(--el-violet-100);
+  --color-status-in-progress: var(--el-amber-700);
+  --color-status-in-progress-soft: var(--el-amber-100);
+  --color-status-done: var(--el-green-700);
+  --color-status-done-soft: var(--el-green-100);
+  --color-status-overdue: var(--el-red-600);
+  --color-status-overdue-soft: var(--el-red-50);
+
+  /* ---- semantic: feedback (banners, form errors, toasts) ---- */
+  --color-success: var(--el-green-700);
+  --color-success-bg: var(--el-green-50);
+  --color-success-border: var(--el-green-200);
+  --color-success-text: var(--el-green-800);
+  --color-warning: var(--el-amber-700);
+  --color-warning-bg: var(--el-amber-50);
+  --color-warning-border: var(--el-amber-200);
+  --color-warning-text: var(--el-amber-900);
+  --color-danger: var(--el-red-600);
+  --color-danger-bg: var(--el-red-50);
+  --color-danger-border: var(--el-red-200);
+  --color-danger-text: var(--el-red-900);
+  --color-info: var(--el-blue-600);
+  --color-info-bg: var(--color-status-planned-soft);
+  --color-info-border: var(--el-blue-200);
+  --color-info-text: var(--el-blue-800);
+
+  /* ---- semantic: categorical day/route scale (maps, charts) ---- */
+  --color-day-1: #1f6feb;
+  --color-day-2: #e8590c;
+  --color-day-3: #2f9e44;
+  --color-day-4: #9c36b5;
+  --color-day-5: #e03131;
+  --color-day-6: #0c8599;
+  --color-day-7: #f08c00;
+
+  /* ---- typography ---- */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --text-xs: 11.5px; /* captions, helper notes */
+  --text-label: 12px; /* uppercase labels, table headers */
+  --text-sm: 12.5px; /* secondary text, sub-lines */
+  --text-data: 13.5px; /* table cells, dense data */
+  --text-base: 14px; /* body */
+  --text-md: 15px; /* section headings (h2), emphasized body */
+  --text-lg: 17px; /* step up; reserved */
+  --text-xl: 20px; /* page titles (h1) */
+  --text-2xl: 24px; /* reserved */
+  --text-kpi: 28px; /* KPI values — large, heavy, tabular */
+  --weight-regular: 400;
+  --weight-medium: 550;
+  --weight-semibold: 650;
+  --weight-bold: 700;
+  --tracking-label: 0.4px; /* pairs with uppercase labels */
+
+  /* ---- spacing: 4px grid ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* ---- radius: restrained ---- */
+  --radius-sm: 6px; /* buttons, inputs, chips */
+  --radius-md: 8px; /* cards, banners, map frame */
+  --radius-full: 999px; /* pill badges */
+
+  /* ---- elevation: borders do the work; shadows stay low ---- */
+  --shadow-sm:
+    0 1px 2px rgba(22, 35, 58, 0.06), 0 1px 4px rgba(22, 35, 58, 0.08);
+  --shadow-md: 0 4px 12px rgba(22, 35, 58, 0.1); /* popovers, sheets */
+
+  /* ---- motion: short and quiet ---- */
+  --duration-fast: 150ms; /* hovers, toggles */
+  --duration-base: 200ms; /* reveals, sheet slides */
+  --ease-standard: ease;
+}
