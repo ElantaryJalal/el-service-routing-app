@@ -13,7 +13,6 @@
 import { useState } from 'react';
 import {
   Image,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +27,7 @@ import { FEEDBACK_TAGS } from '../domain/feedbackTags';
 import type { OptimisedStop } from '../domain/optimisedTour';
 import { uuidv4 } from '../domain/uuid';
 import { outbox } from '../state/outbox';
+import { SheetShell } from './SheetShell';
 import { Button, SyncState } from './ui';
 
 import { color as tk } from '../theme';
@@ -145,10 +145,9 @@ export function CompletionSheet({
     tags.length > 0 || note.trim().length > 0 || photoUri !== null;
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <ScrollView contentContainerStyle={styles.content}>
+    <SheetShell onClose={onClose}>
+      <View style={styles.sheet}>
+        <ScrollView contentContainerStyle={styles.content}>
             {/* Tier 1: completion status */}
             <View style={styles.header}>
               <View style={styles.flex}>
@@ -317,10 +316,9 @@ export function CompletionSheet({
             )}
 
             <Button title="Done" onPress={onClose} />
-          </ScrollView>
-        </View>
+        </ScrollView>
       </View>
-    </Modal>
+    </SheetShell>
   );
 }
 
@@ -348,7 +346,6 @@ function OptionButton({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  backdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: tk.surface,
     borderTopLeftRadius: 16,

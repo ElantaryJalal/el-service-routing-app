@@ -37,6 +37,7 @@ import {
 import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
 import { useOutboxStatus } from '../src/state/useOutboxStatus';
+import { useSession } from '../src/state/session';
 
 import { Button, SyncState } from '../src/components/ui';
 import { color as tk, shadow } from '../src/theme';
@@ -104,6 +105,9 @@ export default function MapScreen() {
     title: string;
   } | null>(null);
   const [replanOpen, setReplanOpen] = useState(false);
+  // Planning how the week is scheduled is the dispatcher's job; workers execute.
+  const { user } = useSession();
+  const isOffice = user != null && user.role !== 'worker';
   const [moveTarget, setMoveTarget] = useState<OptimisedStop | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const outboxStatus = useOutboxStatus();
@@ -425,16 +429,19 @@ export default function MapScreen() {
         </ScrollView>
 
         <View style={styles.controlRow} pointerEvents="box-none">
-          <View style={styles.controlColumn} pointerEvents="box-none">
-            <DateModeControl
-              mode={tour!.date_mode}
-              busy={modeBusy}
-              onChange={changeDateMode}
-            />
-            <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
-              <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
-            </Pressable>
-          </View>
+          {/* Planning controls are office-only; workers execute the plan. */}
+          {isOffice && (
+            <View style={styles.controlColumn} pointerEvents="box-none">
+              <DateModeControl
+                mode={tour!.date_mode}
+                busy={modeBusy}
+                onChange={changeDateMode}
+              />
+              <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
+                <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
+              </Pressable>
+            </View>
+          )}
           <View style={styles.pillColumn} pointerEvents="box-none">
             {progress.total > 0 && (
               <View style={styles.progressPill}>
@@ -474,7 +481,7 @@ export default function MapScreen() {
       )}
 
       {/* Plan editing: mid-week re-plan and manual move-to-day */}
-      {replanOpen && (
+      {isOffice && replanOpen && (
         <DayPickerSheet
           title="Re-plan the rest of the week"
           message="Pick the first day to re-plan. Stops not yet done — including ones missed on earlier days — are spread over that day and after, starting from the last completed stop. Completed stops keep their history."

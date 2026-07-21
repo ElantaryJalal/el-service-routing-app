@@ -28,18 +28,19 @@ import { DateModeControl } from '../src/components/DateModeControl';
 import { SyncState } from '../src/components/ui';
 import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
+import { StopDetailSheet } from '../src/components/StopDetailSheet';
 import {
   bumpStoreFeedbackCount,
   completionProgress,
   composeOptimisedTour,
   dayColor,
-  etaNearClosing,
   setStopCompletion,
   setStoreAttributesComplete,
   type OptimisedStop,
   type OptimisedTour,
 } from '../src/domain/optimisedTour';
 import { outbox } from '../src/state/outbox';
+import { useSession } from '../src/state/session';
 import { tourCache } from '../src/state/tourCache';
 import { useOutboxStatus } from '../src/state/useOutboxStatus';
 
@@ -79,81 +80,10 @@ function loadLeaflet(): Promise<any> {
   return leafletPromise;
 }
 
-function toHHMM(time: string): string {
-  const m = /^(\d{1,2}):(\d{2})/.exec(time);
-  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : time;
-}
-
 function formatDay(date: string): string {
   const d = new Date(`${date}T00:00:00`);
   const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
   return `${wd} ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string,
-  );
-}
-
-/** Build the popup HTML for a stop. The completion button carries a
- * data-action attribute; the popupopen handler wires it back into React. */
-function popupHtml(s: OptimisedStop, pendingSync: boolean): string {
-  const address = escapeHtml(
-    [s.street, [s.postal_code, s.city].filter(Boolean).join(' ')]
-      .filter(Boolean)
-      .join(', '),
-  );
-  const urgent = etaNearClosing(s.eta, s.closing_time);
-  const chips = s.tasks
-    .map(
-      (t) =>
-        `<span style="background:${tk.soft};border-radius:10px;padding:1px 7px;margin:1px;display:inline-block;font-size:11px">${escapeHtml(t)}</span>`,
-    )
-    .join(' ');
-  const remarks = s.remarks
-    ? `<div style="background:${tk.warningBg};border-left:3px solid ${tk.warning};padding:3px 7px;margin:4px 0;font-size:12px">${escapeHtml(s.remarks)}</div>`
-    : '';
-  const nav = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
-  const etaStyle = urgent ? `color:${tk.danger};font-weight:700` : 'font-weight:600';
-  return `
-    <div style="min-width:180px;font-family:system-ui,sans-serif">
-      <div style="font-weight:700;font-size:14px">${escapeHtml(s.customer ?? `Stop ${s.stop_id}`)}</div>
-      ${address ? `<div style="color:${tk.textMuted};font-size:12px;margin-bottom:4px">${address}</div>` : ''}
-      <div style="font-size:12px;margin:2px 0">
-        <b>${formatDay(s.assigned_day)}</b> · #${s.sequence} ·
-        <span style="${etaStyle}">ETA ${s.eta ? toHHMM(s.eta) : '—'}</span>
-        ${s.closing_time ? ` · closes ${toHHMM(s.closing_time)}` : ''}
-        ${s.service_minutes != null ? ` · ${s.service_minutes} min` : ''}
-      </div>
-      ${urgent ? `<div style="color:${tk.danger};font-size:11px;font-weight:600">Tight — arrives close to closing.</div>` : ''}
-      ${remarks}
-      <div style="margin:4px 0">${chips}</div>
-      ${s.completed_at ? `<div style="color:${tk.status.done};font-size:12px;font-weight:600;margin:2px 0">✓ Completed</div>` : ''}
-      ${pendingSync ? `<div style="color:${tk.warningText};font-size:12px;font-weight:600;margin:2px 0">⇅ not yet synced</div>` : ''}
-      ${
-        s.store_id !== null && s.store_feedback_count > 0
-          ? `<button data-action="show-history" type="button"
-               style="background:${tk.brandSoft};color:${tk.brand};border:none;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin:2px 0">
-               🗒 ${s.store_feedback_count} past note${s.store_feedback_count === 1 ? '' : 's'}
-             </button>`
-          : ''
-      }
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <a href="${nav}" target="_blank" rel="noopener"
-           style="display:inline-block;background:${tk.surface};color:${tk.text};border:1px solid ${tk.borderStrong};padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>
-        <button data-action="toggle-complete" type="button"
-                style="background:${s.completed_at ? tk.bg : tk.brand};color:${s.completed_at ? tk.textMuted : tk.onBrand};border:1px solid ${s.completed_at ? tk.borderStrong : tk.brand};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
-          ${s.completed_at ? 'Mark as not done' : 'Mark done ✓'}
-        </button>
-        ${
-          s.completed_at
-            ? ''
-            : `<button data-action="move-stop" type="button"
-                style="background:${tk.bg};color:${tk.text};border:1px solid ${tk.borderStrong};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Move day…</button>`
-        }
-      </div>
-    </div>`;
 }
 
 export default function MapWebScreen() {
@@ -174,8 +104,22 @@ export default function MapWebScreen() {
   } | null>(null);
   const [replanOpen, setReplanOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<OptimisedStop | null>(null);
+  const [detail, setDetail] = useState<OptimisedStop | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const outboxStatus = useOutboxStatus();
+
+  // Planning how the week is scheduled is the dispatcher's job — the worker
+  // executes it. Hide date-mode + re-plan from workers; keep per-stop moves.
+  const { user } = useSession();
+  const isOffice = user != null && user.role !== 'worker';
+
+  // Keep the selected day chip scrolled into view so it never hides off-edge.
+  const chipScrollRef = useRef<ScrollView | null>(null);
+  const chipPos = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const x = chipPos.current[String(day)];
+    if (x != null) chipScrollRef.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
+  }, [day]);
 
   /** Apply a local tour change and persist it to the offline cache. */
   function updateTour(fn: (t: OptimisedTour) => OptimisedTour) {
@@ -416,45 +360,11 @@ export default function MapWebScreen() {
             iconSize: [24, 24],
             iconAnchor: [12, 12],
           });
-          const marker = L.marker([s.lat, s.lng], { icon })
-            .bindPopup(popupHtml(s, pendingSync))
+          // Tapping a marker opens the stop detail as a bottom sheet (see
+          // StopDetailSheet) rather than a desktop-sized Leaflet popup.
+          L.marker([s.lat, s.lng], { icon })
+            .on('click', () => setDetail(s))
             .addTo(group);
-          // Bridge the popup's buttons back into React.
-          marker.on('popupopen', (e: any) => {
-            const root = e.popup.getElement() as HTMLElement | null;
-            if (!root) return;
-            const toggle = root.querySelector(
-              '[data-action="toggle-complete"]',
-            ) as HTMLButtonElement | null;
-            if (toggle) {
-              toggle.onclick = () => {
-                map.closePopup();
-                if (s.completed_at === null) markDone(s);
-                else markNotDone(s);
-              };
-            }
-            const notes = root.querySelector(
-              '[data-action="show-history"]',
-            ) as HTMLButtonElement | null;
-            if (notes && s.store_id !== null) {
-              notes.onclick = () => {
-                map.closePopup();
-                setHistory({
-                  storeId: s.store_id!,
-                  title: s.customer ?? `Stop ${s.stop_id}`,
-                });
-              };
-            }
-            const move = root.querySelector(
-              '[data-action="move-stop"]',
-            ) as HTMLButtonElement | null;
-            if (move) {
-              move.onclick = () => {
-                map.closePopup();
-                setMoveTarget(s);
-              };
-            }
-          });
         }
 
         const fitKey = `${day}:${stops.map((s) => s.stop_id).join(',')}`;
@@ -524,11 +434,17 @@ export default function MapWebScreen() {
         )}
 
         <ScrollView
+          ref={chipScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chips}
         >
-          <Chip label="All" active={day === 'all'} onPress={() => setDay('all')} />
+          <Chip
+            label="All"
+            active={day === 'all'}
+            onPress={() => setDay('all')}
+            onLayoutX={(x) => (chipPos.current.all = x)}
+          />
           {tour!.days
             .filter((d) => d.stops.length > 0)
             .map((d) => (
@@ -538,21 +454,25 @@ export default function MapWebScreen() {
                 color={dayColor(d.dayIndex)}
                 active={day === d.dayIndex}
                 onPress={() => setDay(d.dayIndex)}
+                onLayoutX={(x) => (chipPos.current[d.dayIndex] = x)}
               />
             ))}
         </ScrollView>
 
         <View style={styles.controlRow} pointerEvents="box-none">
-          <View style={styles.controlColumn} pointerEvents="box-none">
-            <DateModeControl
-              mode={tour!.date_mode}
-              busy={modeBusy}
-              onChange={changeDateMode}
-            />
-            <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
-              <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
-            </Pressable>
-          </View>
+          {/* Planning controls are office-only; workers execute the plan. */}
+          {isOffice && (
+            <View style={styles.controlColumn} pointerEvents="box-none">
+              <DateModeControl
+                mode={tour!.date_mode}
+                busy={modeBusy}
+                onChange={changeDateMode}
+              />
+              <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
+                <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
+              </Pressable>
+            </View>
+          )}
           <View style={styles.pillColumn} pointerEvents="box-none">
             {progress.total > 0 && (
               <View style={styles.progressPill}>
@@ -571,8 +491,40 @@ export default function MapWebScreen() {
         </View>
       </View>
 
+      {/* Tapped-stop detail as a dismissible bottom sheet. */}
+      {detail && (
+        <StopDetailSheet
+          stop={detail}
+          pendingSync={outboxStatus.pendingStopIds.has(detail.stop_id)}
+          onClose={() => setDetail(null)}
+          onMarkDone={() => {
+            const s = detail;
+            setDetail(null);
+            markDone(s);
+          }}
+          onMarkNotDone={() => {
+            const s = detail;
+            setDetail(null);
+            markNotDone(s);
+          }}
+          onMove={() => {
+            setMoveTarget(detail);
+            setDetail(null);
+          }}
+          onShowHistory={() => {
+            if (detail.store_id !== null) {
+              setHistory({
+                storeId: detail.store_id,
+                title: detail.customer ?? `Stop ${detail.stop_id}`,
+              });
+            }
+            setDetail(null);
+          }}
+        />
+      )}
+
       {/* Plan editing: mid-week re-plan and manual move-to-day */}
-      {replanOpen && (
+      {isOffice && replanOpen && (
         <DayPickerSheet
           title="Re-plan the rest of the week"
           message="Pick the first day to re-plan. Stops not yet done — including ones missed on earlier days — are spread over that day and after, starting from the last completed stop. Completed stops keep their history."
@@ -629,16 +581,19 @@ function Chip({
   active,
   color,
   onPress,
+  onLayoutX,
 }: {
   label: string;
   active: boolean;
   color?: string;
   onPress: () => void;
+  onLayoutX?: (x: number) => void;
 }) {
   return (
     <Pressable
       style={[styles.chip, active && styles.chipActive]}
       onPress={onPress}
+      onLayout={(e) => onLayoutX?.(e.nativeEvent.layout.x)}
       hitSlop={8}
     >
       {color && <View style={[styles.chipDot, { backgroundColor: color }]} />}
