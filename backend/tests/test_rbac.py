@@ -283,6 +283,48 @@ def test_completion_drives_lifecycle_and_ownership(world):
     )
 
 
+def test_worker_reschedules_own_stop_only(world):
+    dispatcher = _token("dispatcher")
+    tour1, tour2 = world["tours"]["tour1"], world["tours"]["tour2"]
+    w1_id, w2_id = world["users"]["worker1"], world["users"]["worker2"]
+    assert _assign(tour1, w1_id, dispatcher).status_code == 200
+    assert _assign(tour2, w2_id, dispatcher).status_code == 200
+
+    worker1 = _token("worker1")
+    own_stop = _stop_ids(tour1, worker1)[0]
+    other_stop = _stop_ids(tour2, dispatcher)[0]
+    tuesday = "2026-07-14"
+
+    # A worker can move a stop's day on their own active tour.
+    resp = client.patch(
+        f"/stops/{own_stop}/plan",
+        headers=_auth(worker1),
+        json={"assigned_day": tuesday},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["assigned_day"] == tuesday
+
+    # But not on another worker's tour.
+    assert (
+        client.patch(
+            f"/stops/{other_stop}/plan",
+            headers=_auth(worker1),
+            json={"assigned_day": tuesday},
+        ).status_code
+        == 403
+    )
+
+    # A day outside the tour's range is rejected (not silently clamped).
+    assert (
+        client.patch(
+            f"/stops/{own_stop}/plan",
+            headers=_auth(worker1),
+            json={"assigned_day": "2026-08-01"},
+        ).status_code
+        == 422
+    )
+
+
 def test_manager_is_read_only(world):
     dispatcher = _token("dispatcher")
     manager = _token("manager")
@@ -306,6 +348,14 @@ def test_manager_is_read_only(world):
     # Mutations are not.
     assert (
         client.post(f"/tours/{tour1}/optimise", headers=_auth(manager)).status_code
+        == 403
+    )
+    assert (
+        client.patch(
+            f"/stops/{stop_id}/plan",
+            headers=_auth(manager),
+            json={"assigned_day": "2026-07-14"},
+        ).status_code
         == 403
     )
     assert _assign(tour1, w1_id, manager).status_code == 403

@@ -95,21 +95,25 @@ def update_stop(
     return stop
 
 
-@router.patch("/{stop_id}/plan", response_model=StopRead, dependencies=[_PLANNERS])
+@router.patch("/{stop_id}/plan", response_model=StopRead)
 def update_stop_plan(
     stop_id: int,
     payload: StopPlanUpdate,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> Stop:
     """Manually move a stop to another day (or off the plan entirely).
 
-    The edit is authoritative: it survives map reloads because clients read
+    Rescheduling a day is field-workable: dispatcher/admin on any tour, a
+    worker only on their own active tour (managers stay read-only). The edit
+    is authoritative: it survives map reloads because clients read
     GET /tours/{id}/plan, which never re-solves. Both affected days are
     re-sequenced; the moved stop's ETA clears until the next optimise run.
     """
     stop = db.get(Stop, stop_id)
     if stop is None:
         raise HTTPException(status_code=404, detail="stop not found")
+    ensure_tour_workable(user, stop.tour)
 
     if payload.assigned_day is not None:
         tour = stop.tour
