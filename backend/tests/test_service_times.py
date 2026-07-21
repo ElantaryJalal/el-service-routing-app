@@ -18,7 +18,11 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.tour import Tour
 from app.services import service_times
-from app.services.optimiser import _profile_service_minutes, _store_service_minutes
+from app.services.optimiser import (
+    _profile_service_minutes,
+    _store_service_minutes,
+    service_estimates,
+)
 from app.services.service_times import recompute_service_times
 from app.services.store_catalog import enrich_stop_from_store
 
@@ -477,6 +481,74 @@ def test_optimiser_store_fallback_minutes(seeded):
     assert fallback[store_a_id] == 65  # learned wins
     assert fallback[store_b_id] == 50  # default when nothing learned
     assert None not in fallback
+
+    db.rollback()
+    db.close()
+
+
+def test_service_estimates_report_minutes_and_source(seeded):
+    """The stop card's estimate resolves to a number AND names its origin, so
+    a plain default is never passed off as a task-linked measurement."""
+    store_a_id, store_b_id, tour_id = seeded
+    db = SessionLocal()
+    store_a = db.get(Store, store_a_id)
+    store_b = db.get(Store, store_b_id)
+    store_a.learned_service_minutes = 65
+    store_a.default_service_minutes = 45
+    store_b.learned_service_minutes = None
+    store_b.default_service_minutes = 50
+    db.flush()
+
+    # A learned per-task profile for store_a + the {EKW, Körbe} task set: two
+    # samples (>= MIN_SAMPLES) so the median 55 becomes a usable estimate.
+    signature = task_signature(["EKW", "Körbe"])
+    anchors = db.query(Stop).filter(Stop.store_id == store_a_id).limit(2).all()
+    for anchor in anchors:
+        db.add(
+            ServiceRecord(
+                stop_id=anchor.id,
+                store_id=store_a_id,
+                tour_id=tour_id,
+                task_signature=signature,
+                duration_minutes=55,
+            )
+        )
+    db.flush()
+
+    def make(store_id, tasks, service_minutes=None):
+        stop = Stop(
+            tour_id=tour_id,
+            row_index=99,
+            store_id=store_id,
+            service_minutes=service_minutes,
+        )
+        stop.tasks = [Task(task_type=t) for t in tasks]
+        db.add(stop)
+        return stop
+
+    override = make(store_a_id, ["EKW", "Körbe"], service_minutes=90)
+    profile = make(store_a_id, ["EKW", "Körbe"])
+    store_learned = make(store_a_id, [])  # empty task set: no profile match
+    store_default = make(store_b_id, [])  # nothing learned -> hand-set default
+    global_default = make(None, [])  # no store at all -> global default
+    db.flush()  # assign ids used as the result keys
+
+    est = service_estimates(
+        db, [override, profile, store_learned, store_default, global_default]
+    )
+    assert (est[override.id].minutes, est[override.id].source) == (90, "override")
+    assert (est[profile.id].minutes, est[profile.id].source) == (55, "profile")
+    assert (est[store_learned.id].minutes, est[store_learned.id].source) == (
+        65,
+        "store_learned",
+    )
+    assert (est[store_default.id].minutes, est[store_default.id].source) == (
+        50,
+        "store_default",
+    )
+    # A real number even with no data anywhere, honestly flagged as a default.
+    assert est[global_default.id].source == "default"
+    assert est[global_default.id].minutes > 0
 
     db.rollback()
     db.close()

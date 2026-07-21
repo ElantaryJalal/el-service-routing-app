@@ -1381,16 +1381,30 @@ export interface components {
             store_address_provenance: components["schemas"]["AddressProvenance"] | null;
             /** Tasks */
             tasks: string | null;
+            /** Status Hint */
+            status_hint: string;
             /** Remarks */
             remarks: string | null;
             /** Lat */
             lat: number | null;
             /** Lng */
             lng: number | null;
+            /** Service Estimate Minutes */
+            service_estimate_minutes: number;
+            /**
+             * Service Estimate Source
+             * @enum {string}
+             */
+            service_estimate_source: "override" | "profile" | "store_learned" | "store_default" | "default";
             /** Store Id */
             store_id: number | null;
             /** Store Attributes Complete */
             store_attributes_complete: boolean | null;
+            store_size: components["schemas"]["StoreSize"] | null;
+            /** Store In Mall */
+            store_in_mall: boolean | null;
+            /** Store Has Parking */
+            store_has_parking: boolean | null;
             /** Store Feedback Count */
             store_feedback_count: number;
         };

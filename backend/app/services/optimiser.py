@@ -36,6 +36,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from math import asin, cos, radians, sin, sqrt
+from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -373,25 +374,72 @@ def _profile_service_minutes(
     }
 
 
+# Where a stop's service-time estimate came from, strongest first. The mobile
+# stop card labels the number accordingly (a task-linked estimate vs. a bare
+# default the crew shouldn't read as measured).
+ServiceEstimateSource = Literal[
+    "override",  # a per-stop minutes value someone set by hand
+    "profile",  # learned for THIS store + this visit's task set (task-linked)
+    "store_learned",  # learned store-wide, across task sets
+    "store_default",  # the store's hand-set default (not measured)
+    "default",  # the global fallback (not measured)
+]
+
+
+@dataclass
+class ServiceEstimate:
+    minutes: int
+    source: ServiceEstimateSource
+
+
+def service_estimates(
+    db: Session, stops: Sequence[Stop], config: OptimiseConfig | None = None
+) -> dict[int, ServiceEstimate]:
+    """Best service-time estimate per stop id AND where it came from, using the
+    same priority the solver applies: the stop's own override, then the learned
+    per-task profile, then the store-wide learned time, then the store's
+    hand-set default, then the global default. Always resolves to a number."""
+    config = config or OptimiseConfig.from_settings()
+    profile_minutes = _profile_service_minutes(db, stops)
+    store_ids = {s.store_id for s in stops if s.store_id is not None}
+    store_learned: dict[int, int] = {}
+    store_default: dict[int, int] = {}
+    if store_ids:
+        for sid, learned, default in db.execute(
+            select(
+                Store.id, Store.learned_service_minutes, Store.default_service_minutes
+            ).where(Store.id.in_(store_ids))
+        ).all():
+            if learned is not None:
+                store_learned[sid] = learned
+            if default is not None:
+                store_default[sid] = default
+
+    result: dict[int, ServiceEstimate] = {}
+    for s in stops:
+        signature = task_signature(t.task_type for t in s.tasks)
+        profile = profile_minutes.get((s.store_id, signature))
+        if s.service_minutes is not None:
+            result[s.id] = ServiceEstimate(s.service_minutes, "override")
+        elif profile is not None:
+            result[s.id] = ServiceEstimate(profile, "profile")
+        elif s.store_id in store_learned:
+            result[s.id] = ServiceEstimate(store_learned[s.store_id], "store_learned")
+        elif s.store_id in store_default:
+            result[s.id] = ServiceEstimate(store_default[s.store_id], "store_default")
+        else:
+            result[s.id] = ServiceEstimate(config.default_service_minutes, "default")
+    return result
+
+
 def service_minutes_map(
     db: Session, stops: Sequence[Stop], config: OptimiseConfig | None = None
 ) -> dict[int, int]:
-    """Best service-time estimate per stop id, using the same priority the
-    solver applies: the stop's own override, then the learned per-task profile,
-    then the store-wide learned/default, then the global default."""
-    config = config or OptimiseConfig.from_settings()
-    store_minutes = _store_service_minutes(db, stops)
-    profile_minutes = _profile_service_minutes(db, stops)
-    result: dict[int, int] = {}
-    for s in stops:
-        signature = task_signature(t.task_type for t in s.tasks)
-        result[s.id] = (
-            s.service_minutes
-            or profile_minutes.get((s.store_id, signature))
-            or store_minutes.get(s.store_id)
-            or config.default_service_minutes
-        )
-    return result
+    """Best service-time estimate per stop id (minutes only). Same priority as
+    the solver; see service_estimates for the source of each number."""
+    return {
+        sid: est.minutes for sid, est in service_estimates(db, stops, config).items()
+    }
 
 
 def _last_completed_coord(db: Session, tour_id: int) -> Coordinate | None:

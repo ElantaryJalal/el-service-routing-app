@@ -10,6 +10,10 @@ import type { components } from '../api/types';
 
 type OptimiseResult = components['schemas']['OptimiseResult'];
 type HoursSource = components['schemas']['HoursSource'];
+export type StoreSize = components['schemas']['StoreSize'];
+/** Where a stop's service-time estimate came from (see backend ServiceEstimate). */
+export type ServiceEstimateSource =
+  components['schemas']['StopDetail']['service_estimate_source'];
 
 export interface OptimisedStop {
   stop_id: number;
@@ -23,11 +27,17 @@ export interface OptimisedStop {
   postal_code: string | null;
   city: string | null;
   tasks: string[];
+  /** pending | done | rework | skip | unknown — 'rework' = Nachbessern. */
+  status_hint: string;
   /** Free-text instructions from the plan's remark column. */
   remarks: string | null;
   lat: number;
   lng: number;
   service_minutes: number | null;
+  /** Best service-time estimate for this visit's task set (always a number). */
+  service_estimate_minutes: number;
+  /** Where that estimate came from — lets the card label a default honestly. */
+  service_estimate_source: ServiceEstimateSource;
   closing_time: string | null;
   hours_source: HoursSource;
   /** ISO timestamp when the crew marked the stop done; null = still open. */
@@ -36,6 +46,10 @@ export interface OptimisedStop {
   store_id: number | null;
   /** False = the completion sheet should ask for the store's attributes. */
   store_attributes_complete: boolean | null;
+  /** The store's crowdsourced attributes (null = not captured; card prompts). */
+  store_size: StoreSize | null;
+  store_in_mall: boolean | null;
+  store_has_parking: boolean | null;
   /** Past visit-feedback notes for the store ("N past notes" indicator). */
   store_feedback_count: number;
 }
@@ -146,15 +160,21 @@ export function composeOptimisedTour(
           postal_code: d?.postal_code ?? null,
           city: d?.city ?? null,
           tasks: tasksToChips(d?.tasks ?? null),
+          status_hint: d?.status_hint ?? 'unknown',
           remarks: d?.remarks ?? null,
           lat: d?.lat ?? 0,
           lng: d?.lng ?? 0,
           service_minutes: d?.service_minutes ?? null,
+          service_estimate_minutes: d?.service_estimate_minutes ?? 0,
+          service_estimate_source: d?.service_estimate_source ?? 'default',
           closing_time: d?.closing_time ?? null,
           hours_source: d?.hours_source ?? 'default',
           completed_at: d?.completed_at ?? null,
           store_id: d?.store_id ?? null,
           store_attributes_complete: d?.store_attributes_complete ?? null,
+          store_size: d?.store_size ?? null,
+          store_in_mall: d?.store_in_mall ?? null,
+          store_has_parking: d?.store_has_parking ?? null,
           store_feedback_count: d?.store_feedback_count ?? 0,
         };
       }),
@@ -215,6 +235,45 @@ export function setStoreAttributesComplete(
       stops: day.stops.map((s) =>
         s.store_id === storeId ? { ...s, store_attributes_complete: complete } : s,
       ),
+    })),
+  };
+}
+
+/**
+ * A copy of the tour with a store's attributes updated in place across every
+ * stop of that store, so a value the worker just captured on the detail card
+ * shows immediately (and stops prompting) without a refetch. `complete` is
+ * recomputed from whether all three are now set.
+ */
+export function setStoreAttributes(
+  tour: OptimisedTour,
+  storeId: number,
+  fields: {
+    size?: StoreSize | null;
+    in_mall?: boolean | null;
+    has_parking?: boolean | null;
+  },
+): OptimisedTour {
+  return {
+    ...tour,
+    days: tour.days.map((day) => ({
+      ...day,
+      stops: day.stops.map((s) => {
+        if (s.store_id !== storeId) return s;
+        const store_size = fields.size ?? s.store_size;
+        const store_in_mall = fields.in_mall ?? s.store_in_mall;
+        const store_has_parking = fields.has_parking ?? s.store_has_parking;
+        return {
+          ...s,
+          store_size,
+          store_in_mall,
+          store_has_parking,
+          store_attributes_complete:
+            store_size !== null &&
+            store_in_mall !== null &&
+            store_has_parking !== null,
+        };
+      }),
     })),
   };
 }

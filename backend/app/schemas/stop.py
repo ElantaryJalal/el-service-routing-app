@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.store import AddressProvenance, HoursSource
+from app.models.store import AddressProvenance, HoursSource, StoreSize
+from app.services.optimiser import ServiceEstimateSource
 
 
 class StopUpdate(BaseModel):
@@ -91,16 +92,30 @@ class StopDetail(StopRead):
     # new-store candidates the dispatcher should review before optimising.
     store_address_provenance: AddressProvenance | None
     tasks: str | None
+    # pending | done | rework | skip | unknown. 'rework' is a Nachbessern
+    # (fix-up) mission — shown alongside the task list, not instead of it.
+    status_hint: str
     # Free-text instructions from the plan's remark column; the work for a
     # stop may be stated here instead of task codes.
     remarks: str | None
     lat: float | None
     lng: float | None
+    # Best service-time estimate for THIS visit's task set, and where it came
+    # from (per-task learned profile > store-wide > default). Always a number,
+    # so the card never shows a bare "— min"; the source lets it label a plain
+    # default honestly rather than pass it off as measured.
+    service_estimate_minutes: int
+    service_estimate_source: ServiceEstimateSource
     # Catalog store link (null when the stop wasn't matched). The completion
     # sheet shows the attribute-capture form only while
     # store_attributes_complete is False.
     store_id: int | None
     store_attributes_complete: bool | None
+    # The linked store's crowdsourced attributes (null = not captured yet, so
+    # the card shows a quick-capture control in place of the value).
+    store_size: StoreSize | None
+    store_in_mall: bool | None
+    store_has_parking: bool | None
     # How many past visit-feedback notes exist for the store ("N past notes"
     # indicator on the stop card); 0 when the stop has no store.
     store_feedback_count: int

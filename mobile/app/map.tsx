@@ -23,16 +23,18 @@ import {
 import { DateModeControl } from '../src/components/DateModeControl';
 import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
+import { StopFacts } from '../src/components/StopFacts';
 import {
   bumpStoreFeedbackCount,
   completionProgress,
   composeOptimisedTour,
   dayColor,
-  etaNearClosing,
   setStopCompletion,
+  setStoreAttributes,
   setStoreAttributesComplete,
   type OptimisedStop,
   type OptimisedTour,
+  type StoreSize,
 } from '../src/domain/optimisedTour';
 import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
@@ -53,11 +55,6 @@ type Load =
 type DayFilter = number | 'all';
 
 const LEIPZIG = { latitude: 51.3397, longitude: 12.3731 };
-
-function toHHMM(time: string): string {
-  const m = /^(\d{1,2}):(\d{2})/.exec(time);
-  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : time;
-}
 
 function formatDay(date: string): string {
   const d = new Date(`${date}T00:00:00`);
@@ -477,6 +474,9 @@ export default function MapScreen() {
               title: selected.customer ?? `Stop ${selected.stop_id}`,
             })
           }
+          onAttributesSaved={(storeId, fields) =>
+            updateTour((t) => setStoreAttributes(t, storeId, fields))
+          }
         />
       )}
 
@@ -583,6 +583,7 @@ function StopDetailCard({
   onMarkNotDone,
   onMove,
   onShowHistory,
+  onAttributesSaved,
 }: {
   stop: OptimisedStop;
   pendingSync: boolean;
@@ -592,8 +593,11 @@ function StopDetailCard({
   onMarkNotDone: () => void;
   onMove: () => void;
   onShowHistory: () => void;
+  onAttributesSaved: (
+    storeId: number,
+    fields: { size?: StoreSize; in_mall?: boolean; has_parking?: boolean },
+  ) => void;
 }) {
-  const urgent = etaNearClosing(stop.eta, stop.closing_time);
   const address = [
     stop.street,
     [stop.postal_code, stop.city].filter(Boolean).join(' '),
@@ -643,32 +647,7 @@ function StopDetailCard({
         {pendingSync && <SyncState state="pending" label="Not yet synced" />}
       </View>
 
-      <View style={[styles.etaRow, urgent && styles.etaRowUrgent]}>
-        <Text style={styles.etaLabel}>ETA</Text>
-        <Text style={[styles.etaValue, urgent && styles.etaValueUrgent]}>
-          {stop.eta ? toHHMM(stop.eta) : '—'}
-        </Text>
-        <Text style={styles.etaLabel}>Closes</Text>
-        <Text style={[styles.etaValue, urgent && styles.etaValueUrgent]}>
-          {stop.closing_time ? toHHMM(stop.closing_time) : '—'}
-        </Text>
-        <Text style={styles.etaLabel}>{stop.service_minutes ?? '—'} min on site</Text>
-      </View>
-      {urgent && (
-        <Text style={styles.urgentHint}>Tight — arrives close to closing time.</Text>
-      )}
-
-      {stop.remarks && <Text style={styles.remarks}>{stop.remarks}</Text>}
-
-      {stop.tasks.length > 0 && (
-        <View style={styles.taskChips}>
-          {stop.tasks.map((t, i) => (
-            <View key={i} style={styles.taskChip}>
-              <Text style={styles.taskChipText}>{t}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+      <StopFacts stop={stop} onAttributesSaved={onAttributesSaved} />
 
       {/* Thumb row: the screen's ONE primary action (Mark done) beside
           Navigate; everything else stays quiet below. */}
@@ -808,33 +787,6 @@ const styles = StyleSheet.create({
     backgroundColor: tk.soft,
   },
   notesBadgeText: { color: tk.brand, fontWeight: '600', fontSize: 13 },
-  etaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-    backgroundColor: tk.bg,
-    borderRadius: 8,
-    padding: 10,
-  },
-  etaRowUrgent: { backgroundColor: tk.dangerBg },
-  etaLabel: { fontSize: 12, color: tk.textMuted },
-  etaValue: { fontSize: 16, fontWeight: '700', color: tk.text },
-  etaValueUrgent: { color: tk.danger },
-  urgentHint: { color: tk.danger, fontSize: 13, fontWeight: '600' },
-  remarks: {
-    backgroundColor: tk.warningBg,
-    borderLeftWidth: 3,
-    borderLeftColor: tk.warning,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    fontSize: 13,
-    color: tk.warningText,
-  },
-  taskChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  taskChip: { backgroundColor: tk.soft, borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10 },
-  taskChipText: { fontSize: 13, color: tk.text },
-
 
   modalBackdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   modalCard: {

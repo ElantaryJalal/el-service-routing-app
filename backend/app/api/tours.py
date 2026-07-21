@@ -49,7 +49,7 @@ from app.services.extraction_local import extract_tour_local
 from app.services.extraction_ollama import extract_tour_ollama
 from app.services.geocoding import geocode_address
 from app.services.opening_hours import fetch_opening_hours
-from app.services.optimiser import current_plan, optimise_tour
+from app.services.optimiser import current_plan, optimise_tour, service_estimates
 from app.services.pull_forward import pull_candidates, pull_into_today
 from app.services.push import notify_user
 from app.services.store_catalog import enrich_stop_from_store, match_store
@@ -493,10 +493,14 @@ def list_stops(
             ).all()
         )
 
+    # One pass over the ledger/catalog for the task-linked service estimates.
+    estimates = service_estimates(db, stops)
+
     result: list[StopDetail] = []
     for stop in stops:
         lon, lat = coords.get(stop.id, (None, None))
         labels = [task.raw_label or task.task_type for task in stop.tasks]
+        estimate = estimates[stop.id]
         result.append(
             StopDetail(
                 id=stop.id,
@@ -525,13 +529,19 @@ def list_stops(
                     stop.store.address_provenance if stop.store else None
                 ),
                 tasks=", ".join(labels) if labels else None,
+                status_hint=stop.status_hint,
                 remarks=stop.remarks_raw,
                 lat=lat,
                 lng=lon,
+                service_estimate_minutes=estimate.minutes,
+                service_estimate_source=estimate.source,
                 store_id=stop.store_id,
                 store_attributes_complete=(
                     stop.store.attributes_complete if stop.store else None
                 ),
+                store_size=stop.store.size if stop.store else None,
+                store_in_mall=stop.store.in_mall if stop.store else None,
+                store_has_parking=stop.store.has_parking if stop.store else None,
                 store_feedback_count=(
                     feedback_counts.get(stop.store_id, 0)
                     if stop.store_id is not None
