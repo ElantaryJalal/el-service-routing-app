@@ -278,9 +278,14 @@ export default function MapWebScreen() {
     setPlanBusy(true);
     try {
       await api.moveStopPlan(stop.stop_id, dayValue);
-      await refreshPlan();
+      const refreshed = await refreshPlan();
       setMoveTarget(null);
-      setDay('all');
+      // Land on the day the stop moved to: the route line is drawn per-day, so
+      // the 'all' overview would hide it. Off-plan moves fall back to 'all'.
+      const target = dayValue
+        ? refreshed.days.find((d) => d.date === dayValue)
+        : undefined;
+      setDay(target ? target.dayIndex : 'all');
     } catch (err) {
       const message = err instanceof ApiError ? err.message : String(err);
       window.alert(`Could not move the stop: ${message}`);
@@ -381,13 +386,22 @@ export default function MapWebScreen() {
 
         const stops = visibleStops.filter((s) => s.lat !== 0 || s.lng !== 0);
 
-        // Completed stops drop out of the active route line (still tappable).
-        const active = stops.filter((s) => s.completed_at === null);
-        if (day !== 'all' && active.length > 1) {
-          L.polyline(
-            active.map((s) => [s.lat, s.lng]),
-            { color: dayColor(day as number), weight: 3, opacity: 0.8 },
-          ).addTo(group);
+        // One route line per day, coloured by day. In a single-day view only
+        // that day is drawn; in the 'all' overview every day's line shows, so
+        // the week always reads as linked routes. Completed stops drop out of
+        // the active line (still tappable).
+        const daysToDraw = day === 'all' ? tour.days : [tour.days[day]];
+        for (const d of daysToDraw) {
+          if (!d) continue;
+          const active = d.stops.filter(
+            (s) => s.completed_at === null && (s.lat !== 0 || s.lng !== 0),
+          );
+          if (active.length > 1) {
+            L.polyline(
+              active.map((s) => [s.lat, s.lng]),
+              { color: dayColor(d.dayIndex), weight: 3, opacity: 0.8 },
+            ).addTo(group);
+          }
         }
 
         for (const s of stops) {

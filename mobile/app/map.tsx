@@ -214,9 +214,14 @@ export default function MapScreen() {
     setPlanBusy(true);
     try {
       await api.moveStopPlan(stop.stop_id, dayValue);
-      await refreshPlan();
+      const refreshed = await refreshPlan();
       setMoveTarget(null);
-      setDay('all');
+      // Land on the day the stop moved to: the route line is drawn per-day, so
+      // the 'all' overview would hide it. Off-plan moves fall back to 'all'.
+      const target = dayValue
+        ? refreshed.days.find((d) => d.date === dayValue)
+        : undefined;
+      setDay(target ? target.dayIndex : 'all');
       setSelected(null);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : String(err);
@@ -313,13 +318,20 @@ export default function MapScreen() {
     );
   }
 
-  // Completed stops drop out of the active route line (but stay tappable).
-  const routeCoords =
-    day !== 'all'
-      ? visibleStops
-          .filter((s) => s.completed_at === null)
-          .map((s) => ({ latitude: s.lat, longitude: s.lng }))
-      : [];
+  // One route line per day, coloured by day. In a single-day view only that
+  // day is drawn; in the 'all' overview every day's line shows, so the week
+  // always reads as linked routes. Completed stops drop out of the active line
+  // (but stay tappable).
+  const daysToDraw =
+    day === 'all' ? (tour?.days ?? []) : tour?.days[day] ? [tour.days[day]] : [];
+  const routeLines = daysToDraw
+    .map((d) => ({
+      dayIndex: d.dayIndex,
+      coords: d.stops
+        .filter((s) => s.completed_at === null && (s.lat !== 0 || s.lng !== 0))
+        .map((s) => ({ latitude: s.lat, longitude: s.lng })),
+    }))
+    .filter((r) => r.coords.length > 1);
 
   const progress = completionProgress(visibleStops);
 
@@ -342,13 +354,14 @@ export default function MapScreen() {
         {/* Single-day route line. v1 connects stops in sequence with straight
             segments. TODO(backend): expose OSRM route geometry per day (e.g.
             GET /tours/{id}/route?date=) and draw the real driven path. */}
-        {routeCoords.length > 1 && (
+        {routeLines.map((r) => (
           <Polyline
-            coordinates={routeCoords}
-            strokeColor={dayColor(day as number)}
+            key={r.dayIndex}
+            coordinates={r.coords}
+            strokeColor={dayColor(r.dayIndex)}
             strokeWidth={3}
           />
-        )}
+        ))}
 
         {visibleStops.map((s) => (
           <Marker
