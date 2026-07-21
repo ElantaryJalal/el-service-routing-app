@@ -373,6 +373,27 @@ def _profile_service_minutes(
     }
 
 
+def service_minutes_map(
+    db: Session, stops: Sequence[Stop], config: OptimiseConfig | None = None
+) -> dict[int, int]:
+    """Best service-time estimate per stop id, using the same priority the
+    solver applies: the stop's own override, then the learned per-task profile,
+    then the store-wide learned/default, then the global default."""
+    config = config or OptimiseConfig.from_settings()
+    store_minutes = _store_service_minutes(db, stops)
+    profile_minutes = _profile_service_minutes(db, stops)
+    result: dict[int, int] = {}
+    for s in stops:
+        signature = task_signature(t.task_type for t in s.tasks)
+        result[s.id] = (
+            s.service_minutes
+            or profile_minutes.get((s.store_id, signature))
+            or store_minutes.get(s.store_id)
+            or config.default_service_minutes
+        )
+    return result
+
+
 def _last_completed_coord(db: Session, tour_id: int) -> Coordinate | None:
     """Where the crew last finished a stop — the mid-week re-plan start.
 

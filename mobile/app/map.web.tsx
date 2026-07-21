@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
-import { ApiError, api, type DateMode } from '../src/api/client';
+import { ApiError, api, type DateMode, type PullCandidate } from '../src/api/client';
 import {
   CompletionSheet,
   type CompletionSync,
@@ -29,6 +29,7 @@ import { SyncState } from '../src/components/ui';
 import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
 import { StopDetailSheet } from '../src/components/StopDetailSheet';
+import { AddStopSheet } from '../src/components/AddStopSheet';
 import {
   bumpStoreFeedbackCount,
   completionProgress,
@@ -120,6 +121,29 @@ export default function MapWebScreen() {
     const x = chipPos.current[String(day)];
     if (x != null) chipScrollRef.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
   }, [day]);
+
+  // "Add another stop" (smart pull-forward) — needs a connection to route.
+  const [online, setOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+  const [addStopOpen, setAddStopOpen] = useState(false);
+  const [pull, setPull] = useState<{
+    loading: boolean;
+    candidates: PullCandidate[] | null;
+    error: string | null;
+  }>({ loading: false, candidates: null, error: null });
+  const [pullBusyId, setPullBusyId] = useState<number | null>(null);
 
   /** Apply a local tour change and persist it to the offline cache. */
   function updateTour(fn: (t: OptimisedTour) => OptimisedTour) {
@@ -293,6 +317,98 @@ export default function MapWebScreen() {
   }, [tour, day, allStops]);
 
   const progress = completionProgress(visibleStops);
+  // Prominent once the worker is done (or nearly) with the day in view.
+  const dayNearlyDone = progress.total > 0 && progress.total - progress.done <= 1;
+
+  // The worker's "today": the day in view, else the day of their latest
+  // completed stop, else the first day. Pull-forward adds to this day.
+  function currentDayISO(): string | null {
+    if (!tour) return null;
+    if (day !== 'all') return tour.days[day]?.date ?? null;
+    let latestAt: string | null = null;
+    let latestDate: string | null = tour.days[0]?.date ?? null;
+    for (const d of tour.days)
+      for (const s of d.stops)
+        if (s.completed_at && (!latestAt || s.completed_at > latestAt)) {
+          latestAt = s.completed_at;
+          latestDate = d.date;
+        }
+    return latestDate;
+  }
+
+  // Fallback position when geolocation is unavailable: the last stop finished.
+  function lastCompletedCoord(): { lat: number; lng: number } | null {
+    if (!tour) return null;
+    let latestAt: string | null = null;
+    let coord: { lat: number; lng: number } | null = null;
+    for (const d of tour.days)
+      for (const s of d.stops)
+        if (
+          s.completed_at &&
+          (s.lat !== 0 || s.lng !== 0) &&
+          (!latestAt || s.completed_at > latestAt)
+        ) {
+          latestAt = s.completed_at;
+          coord = { lat: s.lat, lng: s.lng };
+        }
+    return coord;
+  }
+
+  function currentPosition(): Promise<{ lat: number; lng: number } | null> {
+    return new Promise((resolve) => {
+      if (typeof navigator === 'undefined' || !navigator.geolocation)
+        return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => resolve(null),
+        { timeout: 8000, maximumAge: 60000 },
+      );
+    });
+  }
+
+  async function openAddStop() {
+    setAddStopOpen(true);
+    setPull({ loading: true, candidates: null, error: null });
+    const today = currentDayISO();
+    if (!today) {
+      setPull({ loading: false, candidates: [], error: 'No day to add to yet.' });
+      return;
+    }
+    const from = (await currentPosition()) ?? lastCompletedCoord();
+    if (!from) {
+      setPull({
+        loading: false,
+        candidates: null,
+        error: "Can't tell where you are — turn on location, or finish a stop first.",
+      });
+      return;
+    }
+    try {
+      const candidates = await api.pullCandidates(tourId, from.lat, from.lng, today);
+      setPull({ loading: false, candidates, error: null });
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      setPull({ loading: false, candidates: null, error: message });
+    }
+  }
+
+  async function addCandidate(stopId: number) {
+    const today = currentDayISO();
+    if (!today) return;
+    setPullBusyId(stopId);
+    try {
+      await api.pullStopIntoToday(tourId, stopId, today);
+      const refreshed = await refreshPlan();
+      const target = refreshed.days.find((d) => d.date === today);
+      setDay(target ? target.dayIndex : 'all');
+      setAddStopOpen(false);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      window.alert(`Could not add the stop: ${message}`);
+    } finally {
+      setPullBusyId(null);
+    }
+  }
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const weekDayOptions: DayOption[] = (tour?.days ?? []).map((d) => ({
@@ -489,7 +605,36 @@ export default function MapWebScreen() {
             )}
           </View>
         </View>
+
+        {/* Smart pull-forward: prominent once the day is (nearly) done,
+            reachable any time; disabled offline since it routes live. */}
+        <Pressable
+          style={[
+            styles.addStop,
+            dayNearlyDone && styles.addStopHot,
+            !online && styles.addStopOff,
+          ]}
+          onPress={online ? openAddStop : undefined}
+          disabled={!online}
+        >
+          <Text style={[styles.addStopText, dayNearlyDone && styles.addStopTextHot]}>
+            ＋ Add another stop{online ? '' : ' · needs signal'}
+          </Text>
+        </Pressable>
       </View>
+
+      {/* Add-another-stop (smart pull-forward) sheet. */}
+      {addStopOpen && (
+        <AddStopSheet
+          loading={pull.loading}
+          candidates={pull.candidates}
+          error={pull.error}
+          online={online}
+          addingId={pullBusyId}
+          onAdd={addCandidate}
+          onClose={() => setAddStopOpen(false)}
+        />
+      )}
 
       {/* Tapped-stop detail as a dismissible bottom sheet. */}
       {detail && (
@@ -677,4 +822,17 @@ const styles = StyleSheet.create({
   chipText: { fontWeight: '600', color: tk.text },
   chipTextActive: { color: tk.onBrand },
   chipDot: { width: 10, height: 10, borderRadius: 5 },
+  addStop: {
+    alignSelf: 'flex-start',
+    backgroundColor: tk.surface,
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: tk.border,
+  },
+  addStopHot: { backgroundColor: tk.brand, borderColor: tk.brand },
+  addStopOff: { opacity: 0.55 },
+  addStopText: { fontWeight: '700', color: tk.text, fontSize: 14 },
+  addStopTextHot: { color: tk.onBrand },
 });

@@ -48,6 +48,9 @@ export type FeedbackTag = components['schemas']['FeedbackTag'];
 /** POST /feedback body (client_uuid is the offline idempotency key). */
 export type FeedbackCreate = components['schemas']['FeedbackCreate'];
 
+/** A later-day stop the worker could pull into today (ranked by drive time). */
+export type PullCandidate = components['schemas']['PullCandidateRead'];
+
 // --- Provisional types (endpoints not yet in the backend OpenAPI) ----------
 // TODO(backend): implement POST /tours/extract, GET /tours/{id}/draft,
 // PATCH /tours/{id}/draft/stops/{stop_id}, and the duplicate_groups shape on
@@ -309,6 +312,36 @@ export const api = {
     return request(
       `/stops/${stopId}/plan`,
       jsonInit('PATCH', { assigned_day: assignedDay }),
+    );
+  },
+
+  /**
+   * Smart "add another stop": the nearest feasible later-day stops the worker
+   * could still finish today, ranked by real driving time from (lat, lng).
+   */
+  pullCandidates(
+    tourId: number,
+    fromLat: number,
+    fromLng: number,
+    day: string,
+  ): Promise<PullCandidate[]> {
+    const q = new URLSearchParams({
+      from_lat: String(fromLat),
+      from_lng: String(fromLng),
+      day,
+    });
+    return request(`/tours/${tourId}/pull-candidates?${q.toString()}`);
+  },
+
+  /** Pull a later-day stop into today; returns the re-sequenced plan. */
+  pullStopIntoToday(
+    tourId: number,
+    stopId: number,
+    day: string,
+  ): Promise<OptimiseResult> {
+    return request(
+      `/tours/${tourId}/stops/${stopId}/pull-into-today`,
+      jsonInit('POST', { day }),
     );
   },
 

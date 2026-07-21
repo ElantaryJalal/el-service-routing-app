@@ -16,7 +16,12 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import CurrentUser, ensure_tour_visible, require_role
+from app.api.deps import (
+    CurrentUser,
+    ensure_tour_visible,
+    ensure_tour_workable,
+    require_role,
+)
 from app.config import settings
 from app.db import get_db
 from app.models.stop import Stop
@@ -25,8 +30,10 @@ from app.models.task import Task
 from app.models.tour import Tour, TourStatus
 from app.models.user import Role, User
 from app.models.visit_feedback import VisitFeedback
+from app.routing.osrm import OSRMError
 from app.schemas.draft import DraftStop, DraftStopCreate, DraftStopUpdate, TourDraft
 from app.schemas.optimise import OptimiseRequest, OptimiseResult
+from app.schemas.pull import PullCandidateRead, PullIntoTodayRequest
 from app.schemas.stop import (
     AddressMismatchRead,
     CommitResult,
@@ -43,6 +50,7 @@ from app.services.extraction_ollama import extract_tour_ollama
 from app.services.geocoding import geocode_address
 from app.services.opening_hours import fetch_opening_hours
 from app.services.optimiser import current_plan, optimise_tour
+from app.services.pull_forward import pull_candidates, pull_into_today
 from app.services.push import notify_user
 from app.services.store_catalog import enrich_stop_from_store, match_store
 from app.services.store_resolution import (
@@ -798,6 +806,76 @@ def get_plan(
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
     ensure_tour_visible(user, tour)
+    return current_plan(db, tour)
+
+
+@router.get("/{tour_id}/pull-candidates", response_model=list[PullCandidateRead])
+def pull_candidates_endpoint(
+    tour_id: int,
+    from_lat: Annotated[float, Query(ge=-90, le=90)],
+    from_lng: Annotated[float, Query(ge=-180, le=180)],
+    day: date,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> list[PullCandidateRead]:
+    """Smartest later-day stops the worker could add today, ranked by real
+    driving time from their current position and filtered to what they can
+    actually finish before the store closes and within the working day."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    ensure_tour_workable(user, tour)
+    try:
+        candidates = pull_candidates(db, tour, from_lat, from_lng, day)
+    except OSRMError as exc:
+        raise HTTPException(
+            status_code=503, detail="Routing is unavailable — needs a connection."
+        ) from exc
+    return [
+        PullCandidateRead(
+            stop_id=c.stop_id,
+            store_name=c.store_name,
+            drive_seconds=c.drive_seconds,
+            drive_minutes=round(c.drive_seconds / 60),
+            projected_arrival=c.projected_arrival,
+            service_minutes=c.service_minutes,
+        )
+        for c in candidates
+    ]
+
+
+@router.post(
+    "/{tour_id}/stops/{stop_id}/pull-into-today", response_model=OptimiseResult
+)
+def pull_into_today_endpoint(
+    tour_id: int,
+    stop_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    payload: PullIntoTodayRequest | None = None,
+) -> OptimiseResult:
+    """Add a later-day stop to today: reassign its day, re-sequence and re-time
+    today's route from the worker's last position, and persist so the office
+    dashboard reflects it. Idempotent — safe to retry."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    ensure_tour_workable(user, tour)
+
+    stop = db.get(Stop, stop_id)
+    if stop is None or stop.tour_id != tour_id:
+        raise HTTPException(status_code=404, detail="stop not found")
+    if stop.completed_at is not None:
+        raise HTTPException(status_code=409, detail="stop is already completed")
+
+    day = (payload.day if payload else None) or date.today()
+    try:
+        pull_into_today(db, tour, stop, day)
+    except OSRMError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503, detail="Routing is unavailable — needs a connection."
+        ) from exc
     return current_plan(db, tour)
 
 

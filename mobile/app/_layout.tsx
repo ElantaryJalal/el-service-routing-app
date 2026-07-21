@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Pressable, Text } from 'react-native';
+import { Platform, Pressable, Text } from 'react-native';
 import { Stack, router, useSegments } from 'expo-router';
 
 import {
@@ -10,6 +10,34 @@ import {
 import { session, useSession } from '../src/state/session';
 
 import { color as tk } from '../src/theme';
+
+// On web the app otherwise fills the whole desktop window. Constrain the
+// mounted RN-web root to a phone-sized column, centred on a dark "device
+// tray" page, so opening it in a browser mirrors how it looks on a handset.
+// Native builds never see this (the app already owns the full screen).
+const MOBILE_FRAME_WIDTH = 390;
+function useWebMobileFrame() {
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const id = 'el-mobile-frame';
+    if (document.getElementById(id)) return;
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+      html, body { background: #14161a; margin: 0; }
+      #root {
+        max-width: ${MOBILE_FRAME_WIDTH}px;
+        margin: 0 auto;
+        min-height: 100vh;
+        height: 100vh;
+        overflow: hidden;
+        background: #fff;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 24px 64px rgba(0,0,0,0.55);
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+}
 
 function SignOutButton() {
   return (
@@ -31,6 +59,8 @@ function SignOutButton() {
 export default function RootLayout() {
   const { user, ready } = useSession();
   const segments = useSegments();
+
+  useWebMobileFrame();
 
   // Auth gate: everything except /login needs a session. Also covers the API
   // client's sign-out on 401 (expired token) — the session change lands here.

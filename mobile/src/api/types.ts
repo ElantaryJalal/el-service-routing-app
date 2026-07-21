@@ -282,14 +282,26 @@ export interface paths {
         put?: never;
         /**
          * Commit Tour
-         * @description Confirm a tour: geocode stragglers, flag duplicates, enrich OSM hours.
+         * @description Confirm a tour: resolve every row against the store catalog first.
          *
-         *     Extraction/review already geocode on the way in, so only stops still
-         *     missing a coordinate are retried here. Only stops whose hours are still
-         *     unknown (hours_source='default') are looked up, so manual and
-         *     previously-fetched OSM hours are never overwritten. Suspected duplicate
-         *     rows (same catalog store, or same normalized street+PLZ) are reported for
-         *     the review UI to resolve — commit never deletes data on its own.
+         *     Each unlinked row runs the conservative match cascade (order_no →
+         *     normalized-address fuzzy → 50 m proximity; see services.store_resolution).
+         *     A matched row links its store and inherits the verified address, geometry,
+         *     and hours through the effective_* read-through — no geocoding, and the
+         *     store is never overwritten from the plan's text (the plan is the less
+         *     reliable source). An ambiguous match is returned for dispatcher review,
+         *     never auto-linked. A row matching nothing becomes a candidate new store
+         *     (address_provenance='geocoded') and is reported, not silently inserted.
+         *     The only geocoding commit ever does is for those unmatched claims.
+         *
+         *     Every linked stop gets address_matches_store: whether the plan's claim
+         *     agrees with the store's verified address. Disagreements keep both values
+         *     and are flagged — the claim is the audit trail of what the paper said.
+         *
+         *     Store hours still unknown after linking are looked up from OSM
+         *     (best-effort); manual and previously-fetched hours are never overwritten.
+         *     Suspected duplicate rows are reported for the review UI to resolve —
+         *     commit never deletes data on its own.
          */
         post: operations["commit_tour_tours__tour_id__commit_post"];
         delete?: never;
@@ -339,6 +351,73 @@ export interface paths {
          *     solver outputs and read as zero/empty here.
          */
         get: operations["get_plan_tours__tour_id__plan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tours/{tour_id}/pull-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pull Candidates Endpoint
+         * @description Smartest later-day stops the worker could add today, ranked by real
+         *     driving time from their current position and filtered to what they can
+         *     actually finish before the store closes and within the working day.
+         */
+        get: operations["pull_candidates_endpoint_tours__tour_id__pull_candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tours/{tour_id}/stops/{stop_id}/pull-into-today": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pull Into Today Endpoint
+         * @description Add a later-day stop to today: reassign its day, re-sequence and re-time
+         *     today's route from the worker's last position, and persist so the office
+         *     dashboard reflects it. Idempotent — safe to retry.
+         */
+        post: operations["pull_into_today_endpoint_tours__tour_id__stops__stop_id__pull_into_today_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tours/{tour_id}/plan/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Plan
+         * @description The plan as a handout: PDF for printing, XLSX for the office.
+         *
+         *     Same day-by-day view as the plan board; stops without an assigned day
+         *     appear in a trailing "Unscheduled" group so the export never hides work.
+         */
+        get: operations["export_plan_tours__tour_id__plan_export_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -432,7 +511,9 @@ export interface paths {
          * Update Stop Plan
          * @description Manually move a stop to another day (or off the plan entirely).
          *
-         *     The edit is authoritative: it survives map reloads because clients read
+         *     Rescheduling a day is field-workable: dispatcher/admin on any tour, a
+         *     worker only on their own active tour (managers stay read-only). The edit
+         *     is authoritative: it survives map reloads because clients read
          *     GET /tours/{id}/plan, which never re-solves. Both affected days are
          *     re-sequenced; the moved stop's ETA clears until the next optimise run.
          */
@@ -464,6 +545,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stops/{stop_id}/resolve-address": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Address
+         * @description Settle a "plan disagrees with store" row (address_matches_store=false).
+         *
+         *     'keep_store': the verified store address stands — the review row is
+         *     dismissed durably (survives re-commits); the claim is kept untouched as
+         *     the audit trail. 'use_claim': the plan was right — the store's address is
+         *     updated from the claim and marked verified by the dispatcher. Neither
+         *     action ever edits claimed_*.
+         */
+        post: operations["resolve_address_stops__stop_id__resolve_address_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stores": {
         parameters: {
             query?: never;
@@ -475,7 +582,8 @@ export interface paths {
          * List Stores
          * @description The store catalog, A-Z, for the office view. needs_attributes=true
          *     filters to stores still missing a crowdsourced attribute (the "which
-         *     facts are we lacking" list); false filters to complete ones.
+         *     facts are we lacking" list); false filters to complete ones. Time
+         *     aggregates exclude demo-seeded services unless include_demo is set.
          */
         get: operations["list_stores_stores_get"];
         put?: never;
@@ -560,7 +668,8 @@ export interface paths {
         /**
          * Store Visits
          * @description Every stop ever linked to this store, newest first — the office's
-         *     visit history with predicted ETA vs. actual completion.
+         *     visit history with predicted ETA vs. actual completion. Demo/seeded
+         *     visits are excluded unless include_demo is set.
          */
         get: operations["store_visits_stores__store_id__visits_get"];
         put?: never;
@@ -583,6 +692,9 @@ export interface paths {
          * @description The store's full visit-feedback history, newest first (mobile detail
          *     view + dashboard). Feedback is append-only — no edit/delete anywhere; a
          *     wrong store *fact* is fixed via PATCH /stores/{id}/attributes instead.
+         *
+         *     Demo/seeded rows are excluded unless include_demo is set; exact
+         *     duplicates collapse to a single entry.
          */
         get: operations["store_feedback_stores__store_id__feedback_get"];
         put?: never;
@@ -643,6 +755,10 @@ export interface paths {
          * List Feedback
          * @description List feedback, newest first, optionally filtered. Feedback is
          *     append-only: there are deliberately no update/delete endpoints.
+         *
+         *     Demo/seeded rows are excluded unless include_demo is set, and exact
+         *     duplicates (same store, author, note, and timestamp — offline-sync and
+         *     seed artefacts) collapse to a single entry.
          */
         get: operations["list_feedback_feedback_get"];
         put?: never;
@@ -705,6 +821,28 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AddressMismatchRead
+         * @description The plan printed an address that disagrees with the linked store's
+         *     verified one. Both are kept: claimed_* is the audit trail that shows the
+         *     office their plan was wrong.
+         */
+        AddressMismatchRead: {
+            /** Stop Id */
+            stop_id: number;
+            /** Store Id */
+            store_id: number;
+            /** Claimed */
+            claimed: string;
+            /** Verified */
+            verified: string;
+        };
+        /**
+         * AddressProvenance
+         * @description How trustworthy the store's address is, from weakest to strongest.
+         * @enum {string}
+         */
+        AddressProvenance: "printed" | "geocoded" | "verified" | "field_confirmed";
         /** Body_extract_tours_extract_post */
         Body_extract_tours_extract_post: {
             /** Image */
@@ -727,6 +865,26 @@ export interface components {
             stops_total: number;
             /** Stops Enriched */
             stops_enriched: number;
+            /**
+             * Stops Matched
+             * @default 0
+             */
+            stops_matched: number;
+            /**
+             * New Stores
+             * @default []
+             */
+            new_stores: components["schemas"]["NewStoreRead"][];
+            /**
+             * Review Items
+             * @default []
+             */
+            review_items: components["schemas"]["MatchReviewItem"][];
+            /**
+             * Address Mismatches
+             * @default []
+             */
+            address_mismatches: components["schemas"]["AddressMismatchRead"][];
             /**
              * Duplicates
              * @default []
@@ -884,12 +1042,18 @@ export interface components {
             id: number;
             /** Store Id */
             store_id: number | null;
+            /** Store Name */
+            store_name: string | null;
+            /** Store City */
+            store_city: string | null;
             /** Tour Id */
             tour_id: number | null;
             /** Stop Id */
             stop_id: number | null;
             /** Employee */
             employee: string | null;
+            /** Is Demo */
+            is_demo: boolean;
             /** Tags */
             tags: string[];
             /** Note */
@@ -910,6 +1074,11 @@ export interface components {
          * @enum {string}
          */
         FeedbackTag: "parking_full" | "access_problem" | "took_longer" | "store_condition" | "other";
+        /**
+         * GeomProvenance
+         * @enum {string}
+         */
+        GeomProvenance: "geocoded" | "verified" | "field_confirmed";
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -917,7 +1086,7 @@ export interface components {
         };
         /**
          * HoursSource
-         * @description Where a stop's opening/closing hours came from.
+         * @description Where the store's opening/closing hours came from.
          * @enum {string}
          */
         HoursSource: "osm" | "manual" | "default";
@@ -930,6 +1099,45 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** MatchCandidateRead */
+        MatchCandidateRead: {
+            /** Store Id */
+            store_id: number;
+            /** Name */
+            name: string;
+            /** Score */
+            score: number;
+            /** Rule */
+            rule: string;
+        };
+        /**
+         * MatchReviewItem
+         * @description An ambiguous catalog match commit refused to auto-link — a false link
+         *     silently sends the crew to the wrong store, so the dispatcher decides.
+         */
+        MatchReviewItem: {
+            /** Stop Id */
+            stop_id: number;
+            /** Customer */
+            customer: string | null;
+            /** Reason */
+            reason: string;
+            /** Candidates */
+            candidates: components["schemas"]["MatchCandidateRead"][];
+        };
+        /**
+         * NewStoreRead
+         * @description A row that matched nothing became a candidate new store — an event
+         *     worth noticing, not a silent insert.
+         */
+        NewStoreRead: {
+            /** Stop Id */
+            stop_id: number;
+            /** Store Id */
+            store_id: number;
+            /** Name */
+            name: string;
         };
         /**
          * OnTimeStats
@@ -1030,6 +1238,33 @@ export interface components {
             photo_path: string;
         };
         /**
+         * PullCandidateRead
+         * @description A later-day stop the worker could pull into today, ranked by real drive
+         *     time from their current position.
+         */
+        PullCandidateRead: {
+            /** Stop Id */
+            stop_id: number;
+            /** Store Name */
+            store_name: string;
+            /** Drive Seconds */
+            drive_seconds: number;
+            /** Drive Minutes */
+            drive_minutes: number;
+            /**
+             * Projected Arrival
+             * Format: time
+             */
+            projected_arrival: string;
+            /** Service Minutes */
+            service_minutes: number;
+        };
+        /** PullIntoTodayRequest */
+        PullIntoTodayRequest: {
+            /** Day */
+            day?: string | null;
+        };
+        /**
          * PushTokenRegister
          * @description POST /me/push-tokens body: this device's Expo push token.
          */
@@ -1038,6 +1273,22 @@ export interface components {
             token: string;
             /** Platform */
             platform?: ("ios" | "android") | null;
+        };
+        /**
+         * ResolveAddressRequest
+         * @description Dispatcher's verdict on a plan-vs-store address mismatch.
+         *
+         *     'keep_store' (the default expectation): the store's verified address
+         *     stands; the claim stays as audit and the review row is dismissed durably.
+         *     'use_claim': the plan was right — the store's address is updated from the
+         *     claim and marked verified by the dispatcher.
+         */
+        ResolveAddressRequest: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "keep_store" | "use_claim";
         };
         /**
          * Role
@@ -1079,8 +1330,9 @@ export interface components {
         /**
          * StopDetail
          * @description A committed stop with the address, task labels, and coordinate the map
-         *     needs. lat/lng come from the PostGIS geom (null until geocoded); tasks is
-         *     the stop's task labels joined for display.
+         *     needs. street/postal_code/city and lat/lng are the *effective* values (the
+         *     linked store's verified data when there is one); claimed_* is what the
+         *     printed plan said — the audit trail shown when the paper was wrong.
          */
         StopDetail: {
             /** Id */
@@ -1093,9 +1345,9 @@ export interface components {
             opening_time: string | null;
             /** Closing Time */
             closing_time: string | null;
+            hours_source: components["schemas"]["HoursSource"];
             /** Service Minutes */
             service_minutes: number | null;
-            hours_source: components["schemas"]["HoursSource"];
             /** Status */
             status: string;
             /** Completed At */
@@ -1114,6 +1366,19 @@ export interface components {
             postal_code: string | null;
             /** City */
             city: string | null;
+            /** Claimed Street */
+            claimed_street: string | null;
+            /** Claimed Postal Code */
+            claimed_postal_code: string | null;
+            /** Claimed City */
+            claimed_city: string | null;
+            /** Address Matches Store */
+            address_matches_store: boolean | null;
+            /** Address Review Resolved At */
+            address_review_resolved_at: string | null;
+            /** Address Review Resolved By */
+            address_review_resolved_by: string | null;
+            store_address_provenance: components["schemas"]["AddressProvenance"] | null;
             /** Tasks */
             tasks: string | null;
             /** Remarks */
@@ -1153,9 +1418,9 @@ export interface components {
             opening_time: string | null;
             /** Closing Time */
             closing_time: string | null;
+            hours_source: components["schemas"]["HoursSource"];
             /** Service Minutes */
             service_minutes: number | null;
-            hours_source: components["schemas"]["HoursSource"];
             /** Status */
             status: string;
             /** Completed At */
@@ -1198,6 +1463,9 @@ export interface components {
         /**
          * StopUpdate
          * @description Per-stop manual overrides. Only provided fields are applied (PATCH).
+         *
+         *     opening/closing_time write through to the stop's linked *store* (hours are
+         *     a property of the shop); a stop without a store cannot hold hours.
          */
         StopUpdate: {
             /** Opening Time */
@@ -1237,6 +1505,17 @@ export interface components {
             lat: number | null;
             /** Lng */
             lng: number | null;
+            address_provenance: components["schemas"]["AddressProvenance"];
+            geom_provenance: components["schemas"]["GeomProvenance"] | null;
+            /** Verified At */
+            verified_at: string | null;
+            /** Verified By */
+            verified_by: string | null;
+            /** Opening Time */
+            opening_time: string | null;
+            /** Closing Time */
+            closing_time: string | null;
+            hours_source: components["schemas"]["HoursSource"] | null;
             /** Default Tasks */
             default_tasks: string[] | null;
             /** Default Service Minutes */
@@ -2119,6 +2398,110 @@ export interface operations {
             };
         };
     };
+    pull_candidates_endpoint_tours__tour_id__pull_candidates_get: {
+        parameters: {
+            query: {
+                from_lat: number;
+                from_lng: number;
+                day: string;
+            };
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PullCandidateRead"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pull_into_today_endpoint_tours__tour_id__stops__stop_id__pull_into_today_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tour_id: number;
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PullIntoTodayRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimiseResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_plan_tours__tour_id__plan_export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                tour_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assign_tour_tours__tour_id__assign_post: {
         parameters: {
             query?: never;
@@ -2350,10 +2733,46 @@ export interface operations {
             };
         };
     };
+    resolve_address_stops__stop_id__resolve_address_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveAddressRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_stores_stores_get: {
         parameters: {
             query?: {
                 needs_attributes?: boolean | null;
+                include_demo?: boolean;
             };
             header?: never;
             path?: never;
@@ -2435,7 +2854,9 @@ export interface operations {
     };
     get_store_stores__store_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                include_demo?: boolean;
+            };
             header?: never;
             path: {
                 store_id: number;
@@ -2466,7 +2887,9 @@ export interface operations {
     };
     store_visits_stores__store_id__visits_get: {
         parameters: {
-            query?: never;
+            query?: {
+                include_demo?: boolean;
+            };
             header?: never;
             path: {
                 store_id: number;
@@ -2497,7 +2920,9 @@ export interface operations {
     };
     store_feedback_stores__store_id__feedback_get: {
         parameters: {
-            query?: never;
+            query?: {
+                include_demo?: boolean;
+            };
             header?: never;
             path: {
                 store_id: number;
@@ -2600,6 +3025,7 @@ export interface operations {
                 store_id?: number | null;
                 tour_id?: number | null;
                 stop_id?: number | null;
+                include_demo?: boolean;
             };
             header?: never;
             path?: never;
@@ -2666,6 +3092,7 @@ export interface operations {
                 date_from?: string | null;
                 date_to?: string | null;
                 tolerance_minutes?: number;
+                include_demo?: boolean;
             };
             header?: never;
             path?: never;
