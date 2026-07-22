@@ -319,8 +319,10 @@ export default function MapWebScreen() {
   }, [tour, day, allStops]);
 
   const progress = completionProgress(visibleStops);
-  // Prominent once the worker is done (or nearly) with the day in view.
-  const dayNearlyDone = progress.total > 0 && progress.total - progress.done <= 1;
+  // Finish-early prompt: only offered once every planned stop in the day in
+  // view is done, so "Add another stop" appears as a next step *after*
+  // completing the day — never as a mid-route distraction.
+  const dayComplete = progress.total > 0 && progress.done === progress.total;
 
   // The worker's "today": the day in view, else the day of their latest
   // completed stop, else the first day. Pull-forward adds to this day.
@@ -608,21 +610,20 @@ export default function MapWebScreen() {
           </View>
         </View>
 
-        {/* Smart pull-forward: prominent once the day is (nearly) done,
-            reachable any time; disabled offline since it routes live. */}
-        <Pressable
-          style={[
-            styles.addStop,
-            dayNearlyDone && styles.addStopHot,
-            !online && styles.addStopOff,
-          ]}
-          onPress={online ? openAddStop : undefined}
-          disabled={!online}
-        >
-          <Text style={[styles.addStopText, dayNearlyDone && styles.addStopTextHot]}>
-            ＋ Add another stop{online ? '' : ' · needs signal'}
-          </Text>
-        </Pressable>
+        {/* Smart pull-forward: shown only once the day in view is complete —
+            the worker finished early and can pull a later stop into today.
+            Disabled offline since it routes live. */}
+        {dayComplete && (
+          <Pressable
+            style={[styles.addStop, styles.addStopHot, !online && styles.addStopOff]}
+            onPress={online ? openAddStop : undefined}
+            disabled={!online}
+          >
+            <Text style={[styles.addStopText, styles.addStopTextHot]}>
+              ＋ Add another stop{online ? '' : ' · needs signal'}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
       {/* Add-another-stop (smart pull-forward) sheet. */}
