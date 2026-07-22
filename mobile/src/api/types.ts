@@ -192,8 +192,10 @@ export interface paths {
         head?: never;
         /**
          * Update Tour
-         * @description Change per-tour settings (currently date_mode). Switching date_mode
-         *     does not reschedule by itself — the client re-runs optimise after.
+         * @description Change per-tour settings (date_mode) and the paper-plan header fields
+         *     (Teamleiter / Mitarbeiter / Team-Nr. / Fahrzeug). Only explicitly-set
+         *     fields are applied; switching date_mode does not reschedule by itself —
+         *     the client re-runs optimise after.
          */
         patch: operations["update_tour_tours__tour_id__patch"];
         trace?: never;
@@ -605,9 +607,13 @@ export interface paths {
         /**
          * Suggest Stops
          * @description Type-ahead for the draft editor: match the typed text against store
-         *     names/aliases/addresses in the catalog, then against stops of previous
-         *     tours that never matched a catalog store. Catalog hits come first — they
-         *     carry the canonical address and default tasks/minutes.
+         *     names/aliases/addresses AND known order numbers (Auftrag/VST) in the
+         *     catalog, then against stops of previous tours that never matched a catalog
+         *     store. Catalog hits come first — they carry the store_id (linked on pick),
+         *     the canonical address, the order number, and default tasks/minutes.
+         *
+         *     Typing the order number is the fast path: the office keys the branch number
+         *     and the exact store drops in, address and hours included.
          */
         get: operations["suggest_stops_stores_suggest_get"];
         put?: never;
@@ -948,22 +954,28 @@ export interface components {
         DraftStop: {
             /** Id */
             id: number;
+            /** Date */
+            date: string | null;
+            /** Weekday */
+            weekday: string | null;
             /** Customer */
             customer: string | null;
+            /** Order No */
+            order_no: string | null;
             /** Street */
             street: string | null;
             /** Postal Code */
             postal_code: string | null;
             /** City */
             city: string | null;
-            /** Order No */
-            order_no: string | null;
             /** Tasks */
             tasks: string | null;
             /** Remarks */
             remarks: string | null;
             /** Service Minutes */
             service_minutes: number | null;
+            /** Store Id */
+            store_id: number | null;
             /** Confidence */
             confidence: {
                 [key: string]: number;
@@ -972,44 +984,57 @@ export interface components {
         /**
          * DraftStopCreate
          * @description A manually added stop (the dispatcher's start-blank path). The stop is
-         *     catalog-matched and geocoded exactly like an extracted row.
+         *     catalog-matched and geocoded exactly like an extracted row — unless
+         *     ``store_id`` is given (the dispatcher picked a known store via type-ahead),
+         *     in which case it links that store directly: no re-typing, no re-geocoding.
          */
         DraftStopCreate: {
+            /** Date */
+            date?: string | null;
             /** Customer */
             customer?: string | null;
+            /** Order No */
+            order_no?: string | null;
             /** Street */
             street?: string | null;
             /** Postal Code */
             postal_code?: string | null;
             /** City */
             city?: string | null;
-            /** Order No */
-            order_no?: string | null;
             /** Tasks */
             tasks?: string | null;
+            /** Remarks */
+            remarks?: string | null;
             /** Service Minutes */
             service_minutes?: number | null;
+            /** Store Id */
+            store_id?: number | null;
         };
         /**
          * DraftStopUpdate
          * @description PATCH body for a draft stop — only explicitly-set fields are applied.
          *
          *     A field sent as ``null`` clears it; the endpoint distinguishes that from an
-         *     omitted field via ``model_fields_set``.
+         *     omitted field via ``model_fields_set``. Setting ``date`` re-derives the
+         *     weekday (Tag); the weekday itself is never written directly.
          */
         DraftStopUpdate: {
+            /** Date */
+            date?: string | null;
             /** Customer */
             customer?: string | null;
+            /** Order No */
+            order_no?: string | null;
             /** Street */
             street?: string | null;
             /** Postal Code */
             postal_code?: string | null;
             /** City */
             city?: string | null;
-            /** Order No */
-            order_no?: string | null;
             /** Tasks */
             tasks?: string | null;
+            /** Remarks */
+            remarks?: string | null;
             /** Service Minutes */
             service_minutes?: number | null;
         };
@@ -1467,6 +1492,8 @@ export interface components {
          *     the catalog, from stops on previous tours.
          */
         StopSuggestion: {
+            /** Store Id */
+            store_id: number | null;
             /** Name */
             name: string;
             /** Street */
@@ -1475,6 +1502,8 @@ export interface components {
             postal_code: string | null;
             /** City */
             city: string | null;
+            /** Order No */
+            order_no: string | null;
             /** Service Minutes */
             service_minutes: number | null;
             /** Tasks */
@@ -1673,6 +1702,14 @@ export interface components {
              * Format: date
              */
             date_to: string;
+            /** Team Lead */
+            team_lead?: string | null;
+            /** Employee */
+            employee?: string | null;
+            /** Team No */
+            team_no?: string | null;
+            /** Vehicle */
+            vehicle?: string | null;
         };
         /** TourDraft */
         TourDraft: {
@@ -1724,10 +1761,31 @@ export interface components {
         TourStatus: "draft" | "planned" | "assigned" | "in_progress" | "done";
         /**
          * TourUpdate
-         * @description Per-tour settings. Only provided fields are applied (PATCH).
+         * @description Per-tour settings and paper-plan header fields. Only provided fields are
+         *     applied (PATCH); an explicit null clears an optional header field.
+         *
+         *     The whole Tourenplan header is editable from the build screen: Kunde,
+         *     Kalenderwoche and the Zeitraum, plus the office metadata (Teamleiter /
+         *     Mitarbeiter / Team-Nr. / Fahrzeug). Unset fields are left untouched.
          */
         TourUpdate: {
             date_mode?: components["schemas"]["DateMode"] | null;
+            /** Customer */
+            customer?: string | null;
+            /** Calendar Week */
+            calendar_week?: number | null;
+            /** Date From */
+            date_from?: string | null;
+            /** Date To */
+            date_to?: string | null;
+            /** Team Lead */
+            team_lead?: string | null;
+            /** Employee */
+            employee?: string | null;
+            /** Team No */
+            team_no?: string | null;
+            /** Vehicle */
+            vehicle?: string | null;
         };
         /** UnassignedStop */
         UnassignedStop: {

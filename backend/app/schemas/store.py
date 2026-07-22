@@ -17,10 +17,17 @@ class StopSuggestion(BaseModel):
     Sourced from the store catalog and, for markets that never made it into
     the catalog, from stops on previous tours."""
 
+    # The catalog store, when the match is a known store — the row links it
+    # directly on pick (verified coordinate/hours/attributes), no re-typing.
+    # Null for history-only suggestions (markets never added to the catalog).
+    store_id: int | None
     name: str
     street: str | None
     postal_code: str | None
     city: str | None
+    # Auftrag/VST the office has used for this store before (from history), so
+    # picking by name also restores the order number without re-typing it.
+    order_no: str | None
     service_minutes: int | None
     tasks: str | None
     source: Literal["catalog", "history"]

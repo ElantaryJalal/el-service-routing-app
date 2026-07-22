@@ -73,6 +73,15 @@ _SERVICE_MIN, _SERVICE_MAX = 30, 600
 _STATUS_HINTS = {"pending", "done", "rework", "skip", "unknown"}
 
 
+# Tag (weekday) labels as printed on the German Tourenplan, Mon–Sun.
+_WEEKDAYS_DE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+def _weekday_de(value: date | None) -> str | None:
+    """The paper's "Tag" column — derived from Datum, never entered by hand."""
+    return _WEEKDAYS_DE[value.weekday()] if value is not None else None
+
+
 def _parse_iso_date(value: str | None) -> date | None:
     if not value:
         return None
@@ -100,6 +109,8 @@ def _draft_stop(stop: Stop) -> DraftStop:
     # editor UI; they read and write the claimed_* columns.
     return DraftStop(
         id=stop.id,
+        date=stop.date.isoformat() if stop.date else None,
+        weekday=stop.weekday,
         customer=stop.customer,
         street=stop.claimed_street,
         postal_code=stop.claimed_postal_code,
@@ -108,6 +119,7 @@ def _draft_stop(stop: Stop) -> DraftStop:
         tasks=", ".join(labels) if labels else None,
         remarks=stop.remarks_raw,
         service_minutes=stop.service_minutes,
+        store_id=stop.store_id,
         confidence=confidence,
     )
 
@@ -151,6 +163,10 @@ def create_tour(
         calendar_week=payload.calendar_week,
         date_from=payload.date_from,
         date_to=payload.date_to,
+        team_lead=payload.team_lead,
+        employee=payload.employee,
+        team_no=payload.team_no,
+        vehicle=payload.vehicle,
         status=TourStatus.draft,
     )
     db.add(tour)
@@ -295,14 +311,33 @@ def update_tour(
     update: TourUpdate,
     db: Annotated[Session, Depends(get_db)],
 ) -> Tour:
-    """Change per-tour settings (currently date_mode). Switching date_mode
-    does not reschedule by itself — the client re-runs optimise after."""
+    """Change per-tour settings (date_mode) and the paper-plan header fields
+    (Teamleiter / Mitarbeiter / Team-Nr. / Fahrzeug). Only explicitly-set
+    fields are applied; switching date_mode does not reschedule by itself —
+    the client re-runs optimise after."""
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
 
     if update.date_mode is not None:
         tour.date_mode = update.date_mode
+    # Header fields: an explicitly-set field is applied (null clears an optional
+    # one); an omitted field is left untouched. Kunde/KW never go empty.
+    if "customer" in update.model_fields_set and update.customer:
+        tour.customer = update.customer.strip() or tour.customer
+    if update.calendar_week is not None:
+        tour.calendar_week = update.calendar_week
+    new_from = update.date_from if "date_from" in update.model_fields_set else None
+    new_to = update.date_to if "date_to" in update.model_fields_set else None
+    if new_from is not None:
+        tour.date_from = new_from
+    if new_to is not None:
+        tour.date_to = new_to
+    if tour.date_to < tour.date_from:
+        raise HTTPException(status_code=422, detail="date_to is before date_from")
+    for field in ("team_lead", "employee", "team_no", "vehicle"):
+        if field in update.model_fields_set:
+            setattr(tour, field, getattr(update, field))
     db.commit()
     db.refresh(tour)
     return tour
@@ -345,11 +380,13 @@ def patch_draft_stop(
     confidence = dict(stop.confidence or {})
     address_changed = False
 
-    # Draft wire fields edit the plan's claim (claimed_* columns).
-    claim_fields = {
+    # Draft wire fields edit the plan's claim (claimed_* columns) and the
+    # free-text remark; the address triplet re-geocodes on change.
+    wire_fields = {
         "street": "claimed_street",
         "postal_code": "claimed_postal_code",
         "city": "claimed_city",
+        "remarks": "remarks_raw",
     }
     for field in update.model_fields_set:
         value = data[field]
@@ -362,8 +399,12 @@ def patch_draft_stop(
             )
             for label in labels:
                 stop.tasks.append(Task(task_type=label, raw_label=label))
+        elif field == "date":
+            # Setting Datum re-derives Tag; clearing it clears both.
+            stop.date = value
+            stop.weekday = _weekday_de(value)
         else:
-            setattr(stop, claim_fields.get(field, field), value)
+            setattr(stop, wire_fields.get(field, field), value)
             if field in ("street", "postal_code", "city"):
                 address_changed = True
         confidence.pop(field, None)
@@ -415,11 +456,14 @@ def add_stop(
     stop = Stop(
         tour_id=tour_id,
         row_index=next_row,
+        date=payload.date,
+        weekday=_weekday_de(payload.date),
         customer=payload.customer,
         order_no=payload.order_no,
         claimed_street=payload.street,
         claimed_postal_code=payload.postal_code,
         claimed_city=payload.city,
+        remarks_raw=payload.remarks,
         service_minutes=payload.service_minutes,
         status="unconfirmed",
         status_hint="pending",
@@ -429,14 +473,24 @@ def add_stop(
         if label:
             stop.tasks.append(Task(task_type=label, raw_label=label))
 
-    store = match_store(db, payload.customer, payload.city, payload.postal_code)
-    if store is not None:
-        enrich_stop_from_store(stop, store)
+    # A type-ahead pick from the catalog links the store verbatim — its
+    # verified coordinate/hours are the source of truth, so no re-geocoding.
+    # A demo showcase store never links a real plan row. Otherwise fall back to
+    # the same match-or-geocode cascade an extracted row gets.
+    picked = db.get(Store, payload.store_id) if payload.store_id is not None else None
+    if picked is not None and not picked.is_demo:
+        enrich_stop_from_store(stop, picked)
     else:
-        coords = geocode_address(db, payload.street, payload.postal_code, payload.city)
-        if coords is not None:
-            lon, lat = coords
-            stop.claimed_geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
+        store = match_store(db, payload.customer, payload.city, payload.postal_code)
+        if store is not None:
+            enrich_stop_from_store(stop, store)
+        else:
+            coords = geocode_address(
+                db, payload.street, payload.postal_code, payload.city
+            )
+            if coords is not None:
+                lon, lat = coords
+                stop.claimed_geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
 
     db.add(stop)
     db.commit()
