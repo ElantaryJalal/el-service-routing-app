@@ -319,10 +319,10 @@ export default function MapWebScreen() {
   }, [tour, day, allStops]);
 
   const progress = completionProgress(visibleStops);
-  // Finish-early prompt: only offered once every planned stop in the day in
-  // view is done, so "Add another stop" appears as a next step *after*
-  // completing the day — never as a mid-route distraction.
-  const dayComplete = progress.total > 0 && progress.done === progress.total;
+  // Finish-early prompt: offered once the worker is down to the last stop of
+  // the day in view (and while it stays done), so "Add another stop" appears
+  // as they're wrapping up — never as a mid-route distraction.
+  const onLastStop = progress.total > 0 && progress.total - progress.done <= 1;
 
   // The worker's "today": the day in view, else the day of their latest
   // completed stop, else the first day. Pull-forward adds to this day.
@@ -610,10 +610,10 @@ export default function MapWebScreen() {
           </View>
         </View>
 
-        {/* Smart pull-forward: shown only once the day in view is complete —
-            the worker finished early and can pull a later stop into today.
-            Disabled offline since it routes live. */}
-        {dayComplete && (
+        {/* Smart pull-forward: shown only once the worker is on the last stop
+            of the day in view — they're finishing early and can pull a later
+            stop into today. Disabled offline since it routes live. */}
+        {onLastStop && (
           <Pressable
             style={[styles.addStop, styles.addStopHot, !online && styles.addStopOff]}
             onPress={online ? openAddStop : undefined}
