@@ -22,10 +22,14 @@ export interface OptimisedStop {
   eta: string | null;
   assigned_day: string; // ISO date of the day this stop belongs to
   dayIndex: number;
-  /** The plan's printed claim for this row — kept for reference, but it can be
-   * wrong (some plans stamp one chain name on every row). Prefer store_name. */
+  /** Auftrag/VST — the office's order/job number for this row (their reference
+   * and likely invoicing key); null when the plan printed none. */
+  order_no: string | null;
+  /** The client named on the plan row (Kunde) — a per-row fact, never coerced
+   * to a tour-wide default. Shown alongside the store, not instead of it. */
   customer: string | null;
-  /** The linked store's real name (source of truth); null when unmatched. */
+  /** The specific physical store serviced (from the catalog); null when the
+   * row was never matched to a catalog store. */
   store_name: string | null;
   street: string | null;
   postal_code: string | null;
@@ -127,6 +131,22 @@ export function stopTitle(stop: {
   return stop.store_name ?? stop.customer ?? `Stop ${stop.stop_id}`;
 }
 
+/**
+ * The client (Kunde) to show beneath the store title — the per-row plan claim,
+ * returned only when it adds information: present, and different from the store
+ * name already used as the title. Null when there is nothing extra to say (no
+ * client, or the title already IS the client because no store matched).
+ */
+export function stopClient(stop: {
+  store_name: string | null;
+  customer: string | null;
+}): string | null {
+  if (!stop.customer) return null;
+  if (!stop.store_name) return null; // customer is already the title
+  if (stop.customer === stop.store_name) return null;
+  return stop.customer;
+}
+
 /** "HH:MM[:SS]" → minutes since midnight, or null if unparseable. */
 export function timeToMinutes(time: string | null): number | null {
   if (!time) return null;
@@ -175,6 +195,7 @@ export function composeOptimisedTour(
           eta: s.eta,
           assigned_day: day.date,
           dayIndex,
+          order_no: d?.order_no ?? null,
           customer: d?.customer ?? null,
           store_name: d?.store_name ?? null,
           street: d?.street ?? null,

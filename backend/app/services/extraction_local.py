@@ -37,9 +37,31 @@ _EMPLOYEE = re.compile(r"Mitarbeiter[:\s]+([A-Za-zÄÖÜäöüß.\- ]{2,40})", r
 _TEAM_LEAD = re.compile(
     r"Teamleiter(?:\s*\([A-Z]\))?[:\s]+([A-Za-zÄÖÜäöüß.\- ]{2,40})", re.IGNORECASE
 )
+_TEAM_NO = re.compile(r"Team[-\s]?Nr\.?[:\s]+([A-Za-z0-9\-]{1,20})", re.IGNORECASE)
+_VEHICLE = re.compile(r"Fahrzeug[:\s]+([A-Za-z0-9ÄÖÜäöüß.\- ]{2,30})", re.IGNORECASE)
 _TOUR_CUSTOMER = re.compile(
     r"Kunde[:\s]+([A-Za-z0-9ÄÖÜäöüß./\- ]{2,60})", re.IGNORECASE
 )
+# Adjacent header labels / internal codes that a greedy name capture swallows.
+# A captured value is cut at the first of these so "Sophie Lehmann Gewerke VFL"
+# becomes "Sophie Lehmann" and "a Team-Nr. SYS-R" becomes "a".
+_HEADER_NOISE = re.compile(
+    r"\b(?:Gewerke|VFL|VDP|Team[-\s]?Nr|Teamleiter|Mitarbeiter|Fahrzeug|Kunde|KW"
+    r"|Kalenderwoche)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_header_value(value: str | None) -> str | None:
+    """Trim a header capture at the first adjacent label/internal code and drop
+    surrounding punctuation. Returns None if nothing meaningful remains."""
+    if value is None:
+        return None
+    cut = _HEADER_NOISE.split(value, maxsplit=1)[0]
+    cleaned = re.sub(r"\s{2,}", " ", cut).strip(" .:-–")
+    # A single stray character left after trimming is OCR noise, not a name.
+    return cleaned if len(cleaned) >= 2 else None
+
 
 _SERVICE_MIN, _SERVICE_MAX = 30, 600
 
@@ -531,27 +553,22 @@ def _fallback_stops(db: Session, rows: list[list[Word]]) -> list[ExtractedStop]:
         if not plz_tokens:
             continue  # meta/header/noise line — carries no address
         plz = plz_tokens[-1]  # order numbers precede the address on a row
+        # Keep the row's printed text as the client (Kunde) verbatim — never
+        # substitute the matched store's canonical name, which would erase a
+        # real per-row distinction. Store linking happens at commit via
+        # store_id; the two are shown side by side, not merged.
+        cleaned = _PLZ.sub(" ", line)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" -|")
         store = match_store_in_text(db, line, plz)
-        if store is not None:
-            stops.append(
-                ExtractedStop(
-                    customer=store.name,  # canonical -> endpoint re-matches
-                    postal_code=plz,
-                    city=store.city,
-                    service_minutes=_find_service_minutes(line),
-                )
+        stops.append(
+            ExtractedStop(
+                customer=cleaned or None,
+                postal_code=plz,
+                city=store.city if store is not None else None,
+                service_minutes=_find_service_minutes(line),
+                remarks=line,
             )
-        else:
-            cleaned = _PLZ.sub(" ", line)
-            cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" -|")
-            stops.append(
-                ExtractedStop(
-                    customer=cleaned or None,
-                    postal_code=plz,
-                    service_minutes=_find_service_minutes(line),
-                    remarks=line,
-                )
-            )
+        )
     return stops
 
 
@@ -567,6 +584,8 @@ def extract_tour_local(
     dates = sorted(_iso_date(d) for d in _DATE.findall(joined))
     employee = _EMPLOYEE.search(joined)
     team_lead = _TEAM_LEAD.search(joined)
+    team_no = _TEAM_NO.search(joined)
+    vehicle = _VEHICLE.search(joined)
     tour_customer = _TOUR_CUSTOMER.search(joined)
 
     header = _find_header(rows)
@@ -599,7 +618,9 @@ def extract_tour_local(
         # OCR: the stop rows themselves carry the week's range.
         date_from=dates[0] if dates else None,
         date_to=dates[-1] if len(dates) > 1 else None,
-        team_lead=team_lead.group(1).strip() if team_lead else None,
-        employee=employee.group(1).strip() if employee else None,
+        team_lead=_clean_header_value(team_lead.group(1)) if team_lead else None,
+        employee=_clean_header_value(employee.group(1)) if employee else None,
+        team_no=team_no.group(1).strip() if team_no else None,
+        vehicle=_clean_header_value(vehicle.group(1)) if vehicle else None,
         stops=stops,
     )

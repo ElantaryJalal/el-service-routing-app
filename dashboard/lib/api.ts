@@ -30,6 +30,11 @@ export interface Tour {
   status: TourStatus;
   date_mode: DateMode;
   assigned_user_id: number | null;
+  /** Office metadata printed on the paper plan — display only, no logic. */
+  team_lead: string | null;
+  employee: string | null;
+  team_no: string | null;
+  vehicle: string | null;
 }
 
 export interface DraftStop {
@@ -78,11 +83,14 @@ export type Provenance = "printed" | "geocoded" | "verified" | "field_confirmed"
 export interface StopDetail {
   id: number;
   tour_id: number;
-  /** The plan's printed claim for this row — the audit trail. Can be wrong
-   * (some plans stamp one chain name on every row); prefer store_name to
-   * display a matched stop. */
+  /** Auftrag/VST — the office's order/job number for the row (their reference
+   * and likely invoicing key); null when the plan printed none. */
+  order_no: string | null;
+  /** The client named on the plan row (Kunde) — a per-row fact, never coerced
+   * to a tour-wide default. Shown alongside store_name, not instead of it. */
   customer: string | null;
-  /** The linked store's real name (source of truth); null when unmatched. */
+  /** The specific physical store serviced (from the catalog); null when the
+   * row was never matched to a catalog store. */
   store_name: string | null;
   opening_time: string | null;
   closing_time: string | null;

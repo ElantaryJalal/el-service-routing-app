@@ -241,7 +241,7 @@ def test_order_no_matches_only_when_history_is_unanimous():
     db.add(store)
     db.flush()
 
-    stop = Stop(tour_id=0, row_index=0, claimed_order_no="0042")
+    stop = Stop(tour_id=0, row_index=0, order_no="0042")
     # Unanimous history: matches.
     res = resolve_stop(
         stop,

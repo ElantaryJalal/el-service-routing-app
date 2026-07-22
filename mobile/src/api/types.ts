@@ -1197,6 +1197,8 @@ export interface components {
             tour_id: number;
             /** Customer */
             customer: string | null;
+            /** Store Name */
+            store_name?: string | null;
             /** City */
             city: string | null;
             /** Assigned Day */
@@ -1340,6 +1342,8 @@ export interface components {
             id: number;
             /** Tour Id */
             tour_id: number;
+            /** Order No */
+            order_no?: string | null;
             /** Customer */
             customer: string | null;
             /** Store Name */
@@ -1429,6 +1433,8 @@ export interface components {
             id: number;
             /** Tour Id */
             tour_id: number;
+            /** Order No */
+            order_no?: string | null;
             /** Customer */
             customer: string | null;
             /** Store Name */
@@ -1697,6 +1703,14 @@ export interface components {
             date_mode: components["schemas"]["DateMode"];
             /** Assigned User Id */
             assigned_user_id: number | null;
+            /** Team Lead */
+            team_lead?: string | null;
+            /** Employee */
+            employee?: string | null;
+            /** Team No */
+            team_no?: string | null;
+            /** Vehicle */
+            vehicle?: string | null;
         };
         /**
          * TourStatus

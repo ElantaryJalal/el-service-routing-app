@@ -16,6 +16,7 @@ import { StopFacts } from './StopFacts';
 import { Button, SyncState } from './ui';
 import {
   dayColor,
+  stopClient,
   stopTitle,
   type OptimisedStop,
   type StoreSize,
@@ -78,6 +79,16 @@ export function StopDetailSheet({
             <Text style={styles.title} numberOfLines={2}>
               {stopTitle(stop)}
             </Text>
+            {stopClient(stop) ? (
+              <Text style={styles.address} numberOfLines={1}>
+                Kunde: {stopClient(stop)}
+              </Text>
+            ) : null}
+            {stop.order_no ? (
+              <Text style={styles.address} numberOfLines={1}>
+                Auftrag {stop.order_no}
+              </Text>
+            ) : null}
             {address ? (
               <Text style={styles.address} numberOfLines={3}>
                 {address}

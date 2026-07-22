@@ -288,6 +288,31 @@ export default function PlanBoard({
         </div>
 
         <div>
+          {(tour.team_lead || tour.employee || tour.team_no || tour.vehicle) && (
+            <div className="card">
+              <h2>Office plan</h2>
+              <dl className="kv small" style={{ margin: 0 }}>
+                {[
+                  ["Teamleiter", tour.team_lead],
+                  ["Mitarbeiter", tour.employee],
+                  ["Team-Nr.", tour.team_no],
+                  ["Fahrzeug", tour.vehicle],
+                ]
+                  .filter(([, v]) => v)
+                  .map(([label, value]) => (
+                    <div
+                      key={label}
+                      style={{ display: "flex", gap: 8, marginTop: 2 }}
+                    >
+                      <dt className="muted" style={{ minWidth: 90 }}>
+                        {label}
+                      </dt>
+                      <dd style={{ margin: 0 }}>{value}</dd>
+                    </div>
+                  ))}
+              </dl>
+            </div>
+          )}
           <div className="card">
             <h2>Assignment</h2>
             {assignee ? (
@@ -366,8 +391,16 @@ export default function PlanBoard({
                         {s.store_name ?? s.customer ?? (
                           <span className="muted">unnamed</span>
                         )}
+                        {s.customer && s.customer !== s.store_name && (
+                          <div className="muted small">Kunde: {s.customer}</div>
+                        )}
                         <div className="muted small">
-                          {[s.street, s.city].filter(Boolean).join(", ")}
+                          {[
+                            s.order_no ? `Auftrag ${s.order_no}` : null,
+                            [s.street, s.city].filter(Boolean).join(", ") || null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
                         </div>
                       </td>
                       <td

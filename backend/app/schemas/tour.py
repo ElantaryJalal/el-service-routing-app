@@ -16,6 +16,11 @@ class TourRead(BaseModel):
     status: TourStatus
     date_mode: DateMode
     assigned_user_id: int | None
+    # Office metadata printed on the paper plan — display only, no logic.
+    team_lead: str | None = None
+    employee: str | None = None
+    team_no: str | None = None
+    vehicle: str | None = None
 
 
 class TourUpdate(BaseModel):

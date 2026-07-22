@@ -123,10 +123,18 @@ function ProofOfWorkPage() {
                         <td className="num">{s.sequence ?? "—"}</td>
                         <td>
                           <div>{s.store_name ?? s.customer ?? "—"}</div>
+                          {s.customer && s.customer !== s.store_name && (
+                            <div className="muted small">Kunde: {s.customer}</div>
+                          )}
                           <div className="muted small">
-                            {[s.street, [s.postal_code, s.city].filter(Boolean).join(" ")]
+                            {[
+                              s.order_no ? `Auftrag ${s.order_no}` : null,
+                              [s.street, [s.postal_code, s.city].filter(Boolean).join(" ")]
+                                .filter(Boolean)
+                                .join(", ") || null,
+                            ]
                               .filter(Boolean)
-                              .join(", ")}
+                              .join(" · ")}
                           </div>
                         </td>
                         <td className="num">{fmtDateTime(eta)}</td>

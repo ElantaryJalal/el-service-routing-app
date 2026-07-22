@@ -217,11 +217,40 @@ def test_fallback_without_header_keeps_unknown_rows(monkeypatch, catalog):
     tour = local.extract_tour_local(db, b"fake-image", "image/png")
     db.close()
 
-    # The known store resolves via the catalog; the unknown row is still a
-    # stop (raw read, kept for geocoding) — never silently dropped.
+    # Every row keeps its printed text as the client verbatim — even the one
+    # that matches a catalog store. The store link is made later (at commit via
+    # store_id); the printed Kunde is never overwritten with the store's
+    # canonical name, so a real per-row distinction can't be erased.
     assert [s.customer for s in tour.stops] == [
-        "Testmarkt Nordstern",
+        "Testmarkt Nordstern Teststr 1 Teststadt EKW 60",
         "Rewe Fantasia Nowherestr 7 Nowhere 70",
     ]
     assert [s.postal_code for s in tour.stops] == ["99001", "12399"]
     assert tour.stops[1].remarks == "Rewe Fantasia Nowherestr 7 12399 Nowhere 70"
+
+
+def test_clean_header_value_strips_internal_codes():
+    # Adjacent labels / internal codes bleed into a greedy name capture; they
+    # must be trimmed so "Gewerke"/"VFL"/"VDP"/"Team-Nr." never become a name.
+    assert local._clean_header_value("Sophie Lehmann Gewerke VFL") == "Sophie Lehmann"
+    assert local._clean_header_value("Halil Ibrahim Team-Nr. SYS-R") == "Halil Ibrahim"
+    assert local._clean_header_value("Gewerke VFL") is None
+    assert local._clean_header_value("  Max Mustermann  ") == "Max Mustermann"
+
+
+def test_header_parses_team_no_and_vehicle_without_noise(monkeypatch, catalog):
+    layout = [
+        [(0, "Teamleiter: Sophie Lehmann Gewerke VFL")],
+        [(0, "Mitarbeiter: Max Mustermann")],
+        [(0, "Team-Nr.: SYS-R Fahrzeug: AC EL 987")],
+        [(0, "Testmarkt Nordstern Teststr 1 99001 Teststadt EKW 60")],
+    ]
+    monkeypatch.setattr(local, "_ocr_words", lambda image_bytes, langs: _words(layout))
+    db = SessionLocal()
+    tour = local.extract_tour_local(db, b"fake-image", "image/png")
+    db.close()
+
+    assert tour.team_lead == "Sophie Lehmann"
+    assert tour.employee == "Max Mustermann"
+    assert tour.team_no == "SYS-R"
+    assert tour.vehicle == "AC EL 987"

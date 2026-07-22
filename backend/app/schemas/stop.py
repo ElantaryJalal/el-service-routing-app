@@ -52,12 +52,17 @@ class StopRead(BaseModel):
 
     id: int
     tour_id: int
-    # The printed plan claim for this row — kept for the audit trail, but it
-    # can be wrong (some plans stamp one chain name on every row). Prefer
-    # store_name for display whenever it is set.
+    # Auftrag/VST — the office's order/job number for this row (their reference
+    # and likely invoicing key). First-class plan data, shown alongside the
+    # store; null when the plan printed none.
+    order_no: str | None = None
+    # The client named on the plan row (Kunde), a per-row fact never coerced to
+    # a tour-wide default — e.g. "HIT Frische 111" on a row whose neighbours say
+    # "ALDI NORD BEUCHA". Distinct from store_name (the physical location): a
+    # row shows BOTH which client and which store.
     customer: str | None
-    # The linked store's real name (source of truth); null when the row was
-    # never matched to a catalog store.
+    # The specific physical store serviced (from the catalog), e.g. "ALDI
+    # Leipzig-Plagwitz"; null when the row was never matched to a catalog store.
     store_name: str | None = None
     # Hours are stored on the linked store; these read through the stop's
     # effective_* views (wire names kept stable for the clients).

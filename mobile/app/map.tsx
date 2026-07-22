@@ -32,6 +32,7 @@ import {
   setStopCompletion,
   setStoreAttributes,
   setStoreAttributesComplete,
+  stopClient,
   stopTitle,
   type OptimisedStop,
   type OptimisedTour,
@@ -624,6 +625,12 @@ function StopDetailCard({
           <Text style={styles.detailTitle}>
             {stopTitle(stop)}
           </Text>
+          {stopClient(stop) ? (
+            <Text style={styles.detailAddress}>Kunde: {stopClient(stop)}</Text>
+          ) : null}
+          {stop.order_no ? (
+            <Text style={styles.detailAddress}>Auftrag {stop.order_no}</Text>
+          ) : null}
           {address ? <Text style={styles.detailAddress}>{address}</Text> : null}
         </View>
         <Pressable onPress={onClose} hitSlop={10}>

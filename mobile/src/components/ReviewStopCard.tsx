@@ -73,6 +73,12 @@ export function ReviewStopCard({ stop, onPatch }: Props) {
       <Text style={styles.customer}>
         {stop.store_name ?? stop.customer ?? `Stop ${stop.id}`}
       </Text>
+      {stop.customer && stop.store_name && stop.customer !== stop.store_name ? (
+        <Text style={styles.address}>Kunde: {stop.customer}</Text>
+      ) : null}
+      {stop.order_no ? (
+        <Text style={styles.address}>Auftrag {stop.order_no}</Text>
+      ) : null}
       {addr ? <Text style={styles.address}>{addr}</Text> : null}
 
       <View style={styles.fields}>

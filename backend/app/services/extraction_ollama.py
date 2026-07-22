@@ -66,7 +66,10 @@ _PROMPT = (
     "cell is blank. service_minutes is the on-site time in minutes if noted, "
     "else null. Use null for any value that is not present. The page header "
     "usually states tour-level fields: Kunde (customer), KW (calendar week), "
-    "Zeitraum (date_from/date_to), Teamleiter, Mitarbeiter, Fahrzeug. Fix "
+    "Zeitraum (date_from/date_to), Teamleiter, Mitarbeiter, Team-Nr. (team_no), "
+    "Fahrzeug. Ignore internal codes such as Gewerke, VFL and VDP — they belong "
+    "to no field and must not leak into team_lead, employee or any other value. "
+    "Fix "
     "obvious OCR-style ambiguity using context (German city and street "
     "names), but copy each store/brand name exactly as printed — a row for a "
     "different chain (e.g. NETTO, LIDL) must keep that name, never be "
@@ -112,6 +115,7 @@ class _WireTour(BaseModel):
     date_to: str | None
     team_lead: str | None
     employee: str | None
+    team_no: str | None
     vehicle: str | None
     stops: list[_WireStop] = Field(default_factory=list)
 

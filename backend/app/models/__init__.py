@@ -1,7 +1,6 @@
 """ORM models. Importing this package registers every table on Base.metadata."""
 
 from app.models.geocode_cache import GeocodeCache
-from app.models.hotel import Hotel
 from app.models.push_token import PushToken
 from app.models.service_record import ServiceRecord
 from app.models.stop import Stop
@@ -24,7 +23,6 @@ __all__ = [
     "GeocodeCache",
     "GeomProvenance",
     "HoursSource",
-    "Hotel",
     "PushToken",
     "Role",
     "ServiceRecord",

@@ -104,7 +104,7 @@ def _draft_stop(stop: Stop) -> DraftStop:
         street=stop.claimed_street,
         postal_code=stop.claimed_postal_code,
         city=stop.claimed_city,
-        order_no=stop.claimed_order_no,
+        order_no=stop.order_no,
         tasks=", ".join(labels) if labels else None,
         remarks=stop.remarks_raw,
         service_minutes=stop.service_minutes,
@@ -208,6 +208,7 @@ def extract(
         tour = existing_tour
         tour.team_lead = tour.team_lead or parsed.team_lead
         tour.employee = tour.employee or parsed.employee
+        tour.team_no = tour.team_no or parsed.team_no
         tour.vehicle = tour.vehicle or parsed.vehicle
         # NB: `or -1` would misread a max of 0 (falsy) as "no rows".
         max_row = db.scalar(
@@ -222,6 +223,7 @@ def extract(
             date_to=_parse_iso_date(parsed.date_to) or date.today(),
             team_lead=parsed.team_lead,
             employee=parsed.employee,
+            team_no=parsed.team_no,
             vehicle=parsed.vehicle,
             status=TourStatus.draft,
         )
@@ -237,7 +239,7 @@ def extract(
             date=_parse_iso_date(extracted.date),
             weekday=extracted.weekday,
             customer=extracted.customer,
-            claimed_order_no=extracted.order_no,
+            order_no=extracted.order_no,
             claimed_street=extracted.street,
             claimed_postal_code=extracted.postal_code,
             claimed_city=extracted.city,
@@ -348,7 +350,6 @@ def patch_draft_stop(
         "street": "claimed_street",
         "postal_code": "claimed_postal_code",
         "city": "claimed_city",
-        "order_no": "claimed_order_no",
     }
     for field in update.model_fields_set:
         value = data[field]
@@ -415,7 +416,7 @@ def add_stop(
         tour_id=tour_id,
         row_index=next_row,
         customer=payload.customer,
-        claimed_order_no=payload.order_no,
+        order_no=payload.order_no,
         claimed_street=payload.street,
         claimed_postal_code=payload.postal_code,
         claimed_city=payload.city,
@@ -507,6 +508,7 @@ def list_stops(
                 tour_id=stop.tour_id,
                 customer=stop.customer,
                 store_name=stop.store_name,
+                order_no=stop.order_no,
                 opening_time=stop.effective_opening_time,
                 closing_time=stop.effective_closing_time,
                 service_minutes=stop.service_minutes,

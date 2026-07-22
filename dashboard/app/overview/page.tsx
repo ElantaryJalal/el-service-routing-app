@@ -198,6 +198,9 @@ function OverviewPage() {
                         {s.store_name ?? s.customer ?? (
                           <span className="muted">—</span>
                         )}
+                        {s.customer && s.customer !== s.store_name && (
+                          <div className="muted small">Kunde: {s.customer}</div>
+                        )}
                       </Td>
                       <Td>{s.city ?? <span className="muted">—</span>}</Td>
                       <Td numeric>{fmtDay(s.assigned_day)}</Td>

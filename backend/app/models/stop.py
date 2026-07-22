@@ -32,10 +32,17 @@ class Stop(Base):
     row_index: Mapped[int] = mapped_column(Integer, nullable=False)
     date: Mapped[date | None] = mapped_column(Date)
     weekday: Mapped[str | None] = mapped_column(String)
+    # The client/tenant named on this plan row (Kunde) — e.g. "ALDI NORD BEUCHA"
+    # or "HIT Frische 111". A PER-ROW fact: different rows can name different
+    # clients, so it is never coerced to a tour-wide default. Distinct from the
+    # physical store (store_name), which is the specific location serviced.
     customer: Mapped[str | None] = mapped_column(String)
+    # Auftrag/VST — the office's order/job number for this row (the branch
+    # reference, and likely their invoicing key). First-class plan data, kept
+    # verbatim; it also anchors catalog resolution (order_no -> store).
+    order_no: Mapped[str | None] = mapped_column(String)
     # What the printed plan said — audit data, never authoritative. Kept even
     # when it contradicts the store, so the office can see their plan was wrong.
-    claimed_order_no: Mapped[str | None] = mapped_column(String)
     claimed_street: Mapped[str | None] = mapped_column(String)
     claimed_postal_code: Mapped[str | None] = mapped_column(String)
     claimed_city: Mapped[str | None] = mapped_column(String)

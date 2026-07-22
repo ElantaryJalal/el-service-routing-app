@@ -119,20 +119,20 @@ def order_no_index(db: Session) -> dict[str, int]:
     silently stops matching instead of mislinking.
     """
     rows = db.execute(
-        select(Stop.claimed_order_no, func.count(func.distinct(Stop.store_id)))
+        select(Stop.order_no, func.count(func.distinct(Stop.store_id)))
         .where(
             Stop.store_id.isnot(None),
-            Stop.claimed_order_no.isnot(None),
-            Stop.claimed_order_no != "",
+            Stop.order_no.isnot(None),
+            Stop.order_no != "",
         )
-        .group_by(Stop.claimed_order_no)
+        .group_by(Stop.order_no)
     ).all()
     unanimous = {order_no for order_no, stores in rows if stores == 1}
     if not unanimous:
         return {}
     pairs = db.execute(
-        select(Stop.claimed_order_no, Stop.store_id)
-        .where(Stop.claimed_order_no.in_(unanimous), Stop.store_id.isnot(None))
+        select(Stop.order_no, Stop.store_id)
+        .where(Stop.order_no.in_(unanimous), Stop.store_id.isnot(None))
         .distinct()
     ).all()
     return dict(pairs)
@@ -163,7 +163,7 @@ def resolve_stop(
     store_by_id = {s.id: s for s in stores}
 
     # 1. Exact order_no (branch number), only where history is unanimous.
-    order_no = (stop.claimed_order_no or "").strip()
+    order_no = (stop.order_no or "").strip()
     if order_no and order_no in by_order_no:
         store = store_by_id.get(by_order_no[order_no])
         if store is not None:
