@@ -24,7 +24,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 import type { FeedbackTag } from '../api/client';
 import { FEEDBACK_TAGS } from '../domain/feedbackTags';
-import type { OptimisedStop } from '../domain/optimisedTour';
+import { stopTitle, type OptimisedStop } from '../domain/optimisedTour';
 import { uuidv4 } from '../domain/uuid';
 import { outbox } from '../state/outbox';
 import { SheetShell } from './SheetShell';
@@ -152,7 +152,7 @@ export function CompletionSheet({
             <View style={styles.header}>
               <View style={styles.flex}>
                 <Text style={styles.title}>
-                  ✓ {stop.customer ?? `Stop ${stop.stop_id}`}
+                  ✓ {stopTitle(stop)}
                 </Text>
                 <View style={styles.syncRow}>
                   {sync === 'queued' ? (

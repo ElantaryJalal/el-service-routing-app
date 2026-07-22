@@ -14,7 +14,12 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SheetShell } from './SheetShell';
 import { StopFacts } from './StopFacts';
 import { Button, SyncState } from './ui';
-import { dayColor, type OptimisedStop, type StoreSize } from '../domain/optimisedTour';
+import {
+  dayColor,
+  stopTitle,
+  type OptimisedStop,
+  type StoreSize,
+} from '../domain/optimisedTour';
 import { color as tk } from '../theme';
 
 function formatDay(date: string): string {
@@ -71,7 +76,7 @@ export function StopDetailSheet({
         <View style={styles.header}>
           <View style={styles.headerText}>
             <Text style={styles.title} numberOfLines={2}>
-              {stop.customer ?? `Stop ${stop.stop_id}`}
+              {stopTitle(stop)}
             </Text>
             {address ? (
               <Text style={styles.address} numberOfLines={3}>

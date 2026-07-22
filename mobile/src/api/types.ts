@@ -583,7 +583,8 @@ export interface paths {
          * @description The store catalog, A-Z, for the office view. needs_attributes=true
          *     filters to stores still missing a crowdsourced attribute (the "which
          *     facts are we lacking" list); false filters to complete ones. Time
-         *     aggregates exclude demo-seeded services unless include_demo is set.
+         *     aggregates exclude demo-seeded services unless include_demo is set. Demo
+         *     showcase stores are likewise hidden from the catalog unless include_demo.
          */
         get: operations["list_stores_stores_get"];
         put?: never;
@@ -1089,7 +1090,7 @@ export interface components {
          * @description Where the store's opening/closing hours came from.
          * @enum {string}
          */
-        HoursSource: "osm" | "manual" | "default";
+        HoursSource: "osm" | "manual" | "default" | "seeded";
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -1341,6 +1342,8 @@ export interface components {
             tour_id: number;
             /** Customer */
             customer: string | null;
+            /** Store Name */
+            store_name?: string | null;
             /** Opening Time */
             opening_time: string | null;
             /** Closing Time */
@@ -1428,6 +1431,8 @@ export interface components {
             tour_id: number;
             /** Customer */
             customer: string | null;
+            /** Store Name */
+            store_name?: string | null;
             /** Opening Time */
             opening_time: string | null;
             /** Closing Time */

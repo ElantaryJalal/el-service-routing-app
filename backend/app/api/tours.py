@@ -506,6 +506,7 @@ def list_stops(
                 id=stop.id,
                 tour_id=stop.tour_id,
                 customer=stop.customer,
+                store_name=stop.store_name,
                 opening_time=stop.effective_opening_time,
                 closing_time=stop.effective_closing_time,
                 service_minutes=stop.service_minutes,
@@ -589,7 +590,9 @@ def commit_tour(
         .order_by(Stop.row_index)
     ).all()
 
-    stores = list(db.scalars(select(Store)))
+    # Demo showcase stores never resolve a real plan row (they'd bleed demo
+    # data into a real tour); they exist only for the seeded demo tour.
+    stores = list(db.scalars(select(Store).where(Store.is_demo.is_(False))))
     store_by_id = {s.id: s for s in stores}
     by_order_no = order_no_index(db)
     coords = store_coords(db, stores)

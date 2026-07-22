@@ -130,7 +130,7 @@ export default function PlanBoard({
   const dupLabel = (id: number) => {
     const s = stopById.get(id);
     return s
-      ? `#${id} ${s.customer ?? ""} — ${[s.street, s.city].filter(Boolean).join(", ")}`
+      ? `#${id} ${s.store_name ?? s.customer ?? ""} — ${[s.street, s.city].filter(Boolean).join(", ")}`
       : `stop #${id}`;
   };
 
@@ -363,7 +363,9 @@ export default function PlanBoard({
                         {s.sequence != null ? ` ${s.sequence}` : ""}
                       </td>
                       <td>
-                        {s.customer ?? <span className="muted">unnamed</span>}
+                        {s.store_name ?? s.customer ?? (
+                          <span className="muted">unnamed</span>
+                        )}
                         <div className="muted small">
                           {[s.street, s.city].filter(Boolean).join(", ")}
                         </div>

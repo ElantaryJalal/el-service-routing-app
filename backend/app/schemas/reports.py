@@ -40,6 +40,9 @@ class OutstandingStop(BaseModel):
     stop_id: int
     tour_id: int
     customer: str | None
+    # The linked store's real name (source of truth); null when unmatched.
+    # Prefer it over the printed customer claim for display.
+    store_name: str | None = None
     city: str | None
     assigned_day: date | None
     eta: datetime | None

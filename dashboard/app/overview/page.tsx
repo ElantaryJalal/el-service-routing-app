@@ -194,7 +194,11 @@ function OverviewPage() {
                 <tbody>
                   {report.outstanding.map((s) => (
                     <tr key={s.stop_id}>
-                      <Td>{s.customer ?? <span className="muted">—</span>}</Td>
+                      <Td>
+                        {s.store_name ?? s.customer ?? (
+                          <span className="muted">—</span>
+                        )}
+                      </Td>
                       <Td>{s.city ?? <span className="muted">—</span>}</Td>
                       <Td numeric>{fmtDay(s.assigned_day)}</Td>
                       <Td numeric>{fmtTime(s.eta)}</Td>

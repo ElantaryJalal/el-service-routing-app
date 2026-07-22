@@ -52,7 +52,13 @@ class StopRead(BaseModel):
 
     id: int
     tour_id: int
+    # The printed plan claim for this row — kept for the audit trail, but it
+    # can be wrong (some plans stamp one chain name on every row). Prefer
+    # store_name for display whenever it is set.
     customer: str | None
+    # The linked store's real name (source of truth); null when the row was
+    # never matched to a catalog store.
+    store_name: str | None = None
     # Hours are stored on the linked store; these read through the stop's
     # effective_* views (wire names kept stable for the clients).
     opening_time: time | None = Field(validation_alias="effective_opening_time")

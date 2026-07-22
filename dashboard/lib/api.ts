@@ -78,7 +78,12 @@ export type Provenance = "printed" | "geocoded" | "verified" | "field_confirmed"
 export interface StopDetail {
   id: number;
   tour_id: number;
+  /** The plan's printed claim for this row — the audit trail. Can be wrong
+   * (some plans stamp one chain name on every row); prefer store_name to
+   * display a matched stop. */
   customer: string | null;
+  /** The linked store's real name (source of truth); null when unmatched. */
+  store_name: string | null;
   opening_time: string | null;
   closing_time: string | null;
   service_minutes: number | null;
@@ -249,6 +254,8 @@ export interface OverviewReport {
     stop_id: number;
     tour_id: number;
     customer: string | null;
+    /** The linked store's real name (source of truth); null when unmatched. */
+    store_name: string | null;
     city: string | null;
     assigned_day: string | null;
     eta: string | null;

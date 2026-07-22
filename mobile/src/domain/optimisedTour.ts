@@ -22,7 +22,11 @@ export interface OptimisedStop {
   eta: string | null;
   assigned_day: string; // ISO date of the day this stop belongs to
   dayIndex: number;
+  /** The plan's printed claim for this row — kept for reference, but it can be
+   * wrong (some plans stamp one chain name on every row). Prefer store_name. */
   customer: string | null;
+  /** The linked store's real name (source of truth); null when unmatched. */
+  store_name: string | null;
   street: string | null;
   postal_code: string | null;
   city: string | null;
@@ -102,9 +106,25 @@ function addressLabel(d: StopDetail): string {
     [d.street, [d.postal_code, d.city].filter(Boolean).join(' ')]
       .filter(Boolean)
       .join(', ') ||
+    d.store_name ||
     d.customer ||
     `Stop ${d.id}`
   );
+}
+
+/**
+ * The name to show for a stop: the linked store's real name when matched
+ * (the source of truth), else the plan's printed claim, else a placeholder.
+ * The printed claim can be generically wrong — some plans stamp one chain name
+ * (e.g. "ALDI NORD BEUCHA") on every row even where the real store differs — so
+ * a matched stop must be labelled by its store, never the claim.
+ */
+export function stopTitle(stop: {
+  store_name: string | null;
+  customer: string | null;
+  stop_id: number;
+}): string {
+  return stop.store_name ?? stop.customer ?? `Stop ${stop.stop_id}`;
 }
 
 /** "HH:MM[:SS]" → minutes since midnight, or null if unparseable. */
@@ -156,6 +176,7 @@ export function composeOptimisedTour(
           assigned_day: day.date,
           dayIndex,
           customer: d?.customer ?? null,
+          store_name: d?.store_name ?? null,
           street: d?.street ?? null,
           postal_code: d?.postal_code ?? null,
           city: d?.city ?? null,

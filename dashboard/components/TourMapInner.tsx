@@ -66,7 +66,7 @@ export default function TourMapInner({ stops, plan }: Props) {
         .join(", ");
       L.marker(pos, { icon })
         .bindPopup(
-          `<strong>${stop.customer ?? "Stop " + stop.id}</strong>` +
+          `<strong>${stop.store_name ?? stop.customer ?? "Stop " + stop.id}</strong>` +
             (address
               ? `<br><span style="color:var(--color-text-muted)">${address}</span>`
               : "") +

@@ -113,8 +113,11 @@ def list_stores(
     """The store catalog, A-Z, for the office view. needs_attributes=true
     filters to stores still missing a crowdsourced attribute (the "which
     facts are we lacking" list); false filters to complete ones. Time
-    aggregates exclude demo-seeded services unless include_demo is set."""
+    aggregates exclude demo-seeded services unless include_demo is set. Demo
+    showcase stores are likewise hidden from the catalog unless include_demo."""
     query = select(Store).order_by(Store.name)
+    if not include_demo:
+        query = query.where(Store.is_demo.is_(False))
     missing = or_(
         Store.size.is_(None),
         Store.in_mall.is_(None),
@@ -145,12 +148,13 @@ def suggest_stops(
     for store in db.scalars(
         select(Store)
         .where(
+            Store.is_demo.is_(False),
             or_(
                 Store.name.ilike(pattern),
                 Store.street.ilike(pattern),
                 Store.city.ilike(pattern),
                 Store.aliases.cast(String).ilike(pattern),
-            )
+            ),
         )
         .order_by(Store.name)
         .limit(limit)

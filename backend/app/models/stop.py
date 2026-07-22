@@ -134,6 +134,17 @@ class Stop(Base):
     # lat/lng are null because effective_geom is store-only).
 
     @property
+    def store_name(self) -> str | None:
+        """The linked store's real name — the authoritative label for the
+        stop. The printed ``customer`` claim can be generically wrong: some
+        plans stamp the same chain name on every row (e.g. "ALDI NORD BEUCHA")
+        even where the actual store is a different brand, so a card that trusts
+        the claim mislabels the stop. Null when no store is linked."""
+        if self.store is not None:
+            return self.store.name
+        return None
+
+    @property
     def effective_street(self) -> str | None:
         if self.store is not None:
             return self.store.street

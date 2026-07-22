@@ -32,6 +32,7 @@ import {
   setStopCompletion,
   setStoreAttributes,
   setStoreAttributesComplete,
+  stopTitle,
   type OptimisedStop,
   type OptimisedTour,
   type StoreSize,
@@ -471,7 +472,7 @@ export default function MapScreen() {
             selected.store_id !== null &&
             setHistory({
               storeId: selected.store_id,
-              title: selected.customer ?? `Stop ${selected.stop_id}`,
+              title: stopTitle(selected),
             })
           }
           onAttributesSaved={(storeId, fields) =>
@@ -493,7 +494,7 @@ export default function MapScreen() {
       )}
       {moveTarget && (
         <DayPickerSheet
-          title={`Move ${moveTarget.customer ?? `stop ${moveTarget.stop_id}`}`}
+          title={`Move ${stopTitle(moveTarget)}`}
           message="The stop is added to the end of the chosen day. Its ETA refreshes on the next re-plan."
           options={[
             ...weekDayOptions.filter((o) => o.value !== moveTarget.assigned_day),
@@ -621,7 +622,7 @@ function StopDetailCard({
       <View style={styles.detailHeader}>
         <View style={styles.flex}>
           <Text style={styles.detailTitle}>
-            {stop.customer ?? `Stop ${stop.stop_id}`}
+            {stopTitle(stop)}
           </Text>
           {address ? <Text style={styles.detailAddress}>{address}</Text> : null}
         </View>

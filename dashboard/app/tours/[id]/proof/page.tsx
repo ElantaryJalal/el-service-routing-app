@@ -122,7 +122,7 @@ function ProofOfWorkPage() {
                       <tr key={s.id}>
                         <td className="num">{s.sequence ?? "—"}</td>
                         <td>
-                          <div>{s.customer ?? "—"}</div>
+                          <div>{s.store_name ?? s.customer ?? "—"}</div>
                           <div className="muted small">
                             {[s.street, [s.postal_code, s.city].filter(Boolean).join(" ")]
                               .filter(Boolean)

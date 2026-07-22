@@ -38,6 +38,7 @@ import {
   setStopCompletion,
   setStoreAttributes,
   setStoreAttributesComplete,
+  stopTitle,
   type OptimisedStop,
   type OptimisedTour,
 } from '../src/domain/optimisedTour';
@@ -661,7 +662,7 @@ export default function MapWebScreen() {
             if (detail.store_id !== null) {
               setHistory({
                 storeId: detail.store_id,
-                title: detail.customer ?? `Stop ${detail.stop_id}`,
+                title: stopTitle(detail),
               });
             }
             setDetail(null);
@@ -685,7 +686,7 @@ export default function MapWebScreen() {
       )}
       {moveTarget && (
         <DayPickerSheet
-          title={`Move ${moveTarget.customer ?? `stop ${moveTarget.stop_id}`}`}
+          title={`Move ${stopTitle(moveTarget)}`}
           message="The stop is added to the end of the chosen day. Its ETA refreshes on the next re-plan."
           options={[
             ...weekDayOptions.filter((o) => o.value !== moveTarget.assigned_day),

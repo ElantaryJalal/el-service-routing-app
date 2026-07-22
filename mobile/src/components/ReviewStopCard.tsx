@@ -19,6 +19,7 @@ const SOURCE_LABEL: Record<StopDetail['hours_source'], { text: string; tone: 'os
   osm: { text: 'from map data (check me)', tone: 'osm' },
   manual: { text: 'set by you', tone: 'manual' },
   default: { text: 'not set', tone: 'none' },
+  seeded: { text: 'demo data', tone: 'none' },
 };
 
 function addressLine(stop: StopDetail): string {
@@ -69,7 +70,9 @@ export function ReviewStopCard({ stop, onPatch }: Props) {
 
   return (
     <View style={styles.card}>
-      <Text style={styles.customer}>{stop.customer ?? `Stop ${stop.id}`}</Text>
+      <Text style={styles.customer}>
+        {stop.store_name ?? stop.customer ?? `Stop ${stop.id}`}
+      </Text>
       {addr ? <Text style={styles.address}>{addr}</Text> : null}
 
       <View style={styles.fields}>
