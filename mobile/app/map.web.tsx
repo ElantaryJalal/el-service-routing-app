@@ -36,7 +36,6 @@ import {
   composeOptimisedTour,
   dayColor,
   setStopCompletion,
-  setStoreAttributes,
   setStoreAttributesComplete,
   stopTitle,
   type OptimisedStop,
@@ -671,9 +670,6 @@ export default function MapWebScreen() {
             }
             setDetail(null);
           }}
-          onAttributesSaved={(storeId, fields) =>
-            updateTour((t) => setStoreAttributes(t, storeId, fields))
-          }
         />
       )}
 

@@ -19,7 +19,6 @@ import {
   stopClient,
   stopTitle,
   type OptimisedStop,
-  type StoreSize,
 } from '../domain/optimisedTour';
 import { color as tk } from '../theme';
 
@@ -38,7 +37,6 @@ export function StopDetailSheet({
   onMarkNotDone,
   onMove,
   onShowHistory,
-  onAttributesSaved,
 }: {
   stop: OptimisedStop;
   pendingSync: boolean;
@@ -49,11 +47,6 @@ export function StopDetailSheet({
   onMarkNotDone: () => void;
   onMove: () => void;
   onShowHistory: () => void;
-  /** Reflect just-captured store attributes into the cached tour. */
-  onAttributesSaved: (
-    storeId: number,
-    fields: { size?: StoreSize; in_mall?: boolean; has_parking?: boolean },
-  ) => void;
 }) {
   const address = [
     stop.street,
@@ -125,7 +118,7 @@ export function StopDetailSheet({
             {pendingSync && <SyncState state="pending" label="Not yet synced" />}
           </View>
 
-          <StopFacts stop={stop} onAttributesSaved={onAttributesSaved} />
+          <StopFacts stop={stop} />
         </ScrollView>
 
         {/* Pinned actions: the screen's ONE primary action beside Navigate. */}

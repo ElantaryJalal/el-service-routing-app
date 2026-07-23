@@ -30,13 +30,11 @@ import {
   composeOptimisedTour,
   dayColor,
   setStopCompletion,
-  setStoreAttributes,
   setStoreAttributesComplete,
   stopClient,
   stopTitle,
   type OptimisedStop,
   type OptimisedTour,
-  type StoreSize,
 } from '../src/domain/optimisedTour';
 import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
@@ -476,9 +474,6 @@ export default function MapScreen() {
               title: stopTitle(selected),
             })
           }
-          onAttributesSaved={(storeId, fields) =>
-            updateTour((t) => setStoreAttributes(t, storeId, fields))
-          }
         />
       )}
 
@@ -585,7 +580,6 @@ function StopDetailCard({
   onMarkNotDone,
   onMove,
   onShowHistory,
-  onAttributesSaved,
 }: {
   stop: OptimisedStop;
   pendingSync: boolean;
@@ -595,10 +589,6 @@ function StopDetailCard({
   onMarkNotDone: () => void;
   onMove: () => void;
   onShowHistory: () => void;
-  onAttributesSaved: (
-    storeId: number,
-    fields: { size?: StoreSize; in_mall?: boolean; has_parking?: boolean },
-  ) => void;
 }) {
   const address = [
     stop.street,
@@ -655,7 +645,7 @@ function StopDetailCard({
         {pendingSync && <SyncState state="pending" label="Not yet synced" />}
       </View>
 
-      <StopFacts stop={stop} onAttributesSaved={onAttributesSaved} />
+      <StopFacts stop={stop} />
 
       {/* Thumb row: the screen's ONE primary action (Mark done) beside
           Navigate; everything else stays quiet below. */}
