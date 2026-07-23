@@ -51,6 +51,7 @@ class ExtractedTour(BaseModel):
     date_to: str | None = None
     team_lead: str | None = None
     employee: str | None = None
+    team_no: str | None = None
     vehicle: str | None = None
     stops: list[ExtractedStop] = Field(default_factory=list)
 
@@ -65,7 +66,16 @@ _SYSTEM = (
     "Fussmatten). For each stop set confidence in [0, 1] per field: high (near "
     "1.0) for clearly printed text, low (below 0.6) for uncertain handwriting or "
     "partially obscured values; omit a field's confidence when it is clearly "
-    "printed. Use null for any value that is not present."
+    "printed. Use null for any value that is not present. "
+    "Read each row's customer (Kunde) INDEPENDENTLY — different rows may name "
+    "different clients (e.g. one 'HIT Frische 111' row among 'ALDI NORD' rows); "
+    "never copy one row's client onto the others or collapse them to a default. "
+    "order_no is the row's Auftrag/VST number, transcribed verbatim. remarks "
+    "(Bemerkung) is the row's full free-text note — transcribe it COMPLETELY, "
+    "never truncated or summarized. From the header capture team_lead "
+    "(Teamleiter), employee (Mitarbeiter), team_no (Team-Nr.) and vehicle "
+    "(Fahrzeug) as separate values; ignore internal codes such as Gewerke, VFL "
+    "and VDP entirely — they are not part of any field."
 )
 
 _PROMPT = (

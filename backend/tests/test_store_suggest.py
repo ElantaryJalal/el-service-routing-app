@@ -87,6 +87,7 @@ def test_catalog_match_carries_row_fill(world):
     hits = _suggest("suggesttest markt")
     assert any(
         s["source"] == "catalog"
+        and s["store_id"] == world["store"]
         and s["name"] == "Suggesttest Markt Nord"
         and s["street"] == "Suggestweg 1"
         and s["postal_code"] == "04999"
@@ -94,6 +95,56 @@ def test_catalog_match_carries_row_fill(world):
         and s["tasks"] == "VSS, UR"
         for s in hits
     ), hits
+
+
+def test_order_number_match_links_store():
+    """Typing the Auftrag/VST number surfaces the exact store (via history),
+    carrying its store_id so the row links it with no re-typing."""
+    db = SessionLocal()
+    store = Store(
+        name="Ordertest Markt",
+        street="Ordersweg 2",
+        postal_code="04997",
+        city="Orderstadt",
+    )
+    db.add(store)
+    tour = Tour(
+        customer="Ordertest",
+        calendar_week=10,
+        date_from=date(2027, 3, 8),
+        date_to=date(2027, 3, 12),
+        status=TourStatus.done,
+    )
+    db.add(tour)
+    db.flush()
+    stop = Stop(
+        tour_id=tour.id,
+        row_index=0,
+        customer="Ordertest Markt",
+        order_no="VST-778812",
+        store_id=store.id,
+        status="done",
+    )
+    db.add(stop)
+    db.commit()
+    ids = {"store": store.id, "tour": tour.id}
+    db.close()
+
+    try:
+        hits = _suggest("778812")
+        assert any(
+            s["source"] == "catalog"
+            and s["store_id"] == ids["store"]
+            and s["order_no"] == "VST-778812"
+            for s in hits
+        ), hits
+    finally:
+        db = SessionLocal()
+        db.query(Stop).filter(Stop.tour_id == ids["tour"]).delete()
+        db.query(Tour).filter(Tour.id == ids["tour"]).delete()
+        db.query(Store).filter(Store.id == ids["store"]).delete()
+        db.commit()
+        db.close()
 
 
 def test_alias_and_address_match(world):

@@ -44,16 +44,16 @@ class Tour(Base):
     calendar_week: Mapped[int] = mapped_column(Integer, nullable=False)
     date_from: Mapped[date] = mapped_column(Date, nullable=False)
     date_to: Mapped[date] = mapped_column(Date, nullable=False)
+    # Office metadata printed on the paper plan (Teamleiter / Mitarbeiter /
+    # Team-Nr. / Fahrzeug). Stored and displayed verbatim; no logic hangs off
+    # them. `employee` is provenance — the authoritative worker link is
+    # assigned_user_id.
     team_lead: Mapped[str | None] = mapped_column(String)
-    # Free-text employee name as printed on the photographed plan (provenance);
-    # the authoritative link is assigned_user_id.
     employee: Mapped[str | None] = mapped_column(String)
+    team_no: Mapped[str | None] = mapped_column(String)
     vehicle: Mapped[str | None] = mapped_column(String)
     assigned_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
-    )
-    hotel_id: Mapped[int | None] = mapped_column(
-        ForeignKey("hotels.id", ondelete="SET NULL")
     )
     status: Mapped[TourStatus] = mapped_column(
         SAEnum(
@@ -84,7 +84,6 @@ class Tour(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    hotel: Mapped["Hotel | None"] = relationship(back_populates="tours")  # noqa: F821
     assigned_user: Mapped["User | None"] = relationship()  # noqa: F821
     stops: Mapped[list["Stop"]] = relationship(  # noqa: F821
         back_populates="tour", cascade="all, delete-orphan"

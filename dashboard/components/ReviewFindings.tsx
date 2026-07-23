@@ -75,7 +75,7 @@ export default function ReviewFindings({ stops, readOnly, onResolved }: Props) {
               <tbody>
                 {mismatches.map((s) => (
                   <tr key={s.id}>
-                    <td>{s.customer ?? `#${s.id}`}</td>
+                    <td>{s.store_name ?? s.customer ?? `#${s.id}`}</td>
                     <td className="muted">
                       {addr(s.claimed_street, s.claimed_postal_code, s.claimed_city)}
                     </td>
@@ -111,7 +111,7 @@ export default function ReviewFindings({ stops, readOnly, onResolved }: Props) {
       {unlinked.length > 0 && (
         <div className="banner banner-warn" style={{ marginTop: 10 }}>
           <strong>No catalog store matched:</strong>{" "}
-          {unlinked.map((s) => s.customer ?? `#${s.id}`).join(", ")} — the match
+          {unlinked.map((s) => s.store_name ?? s.customer ?? `#${s.id}`).join(", ")} — the match
           was ambiguous or nothing fit. These stops have no routable location
           until resolved (fix the row and re-commit); optimise will leave them
           unassigned.
@@ -127,7 +127,7 @@ export default function ReviewFindings({ stops, readOnly, onResolved }: Props) {
             {candidates.map((s) => (
               <div key={s.id}>
                 <Link href={`/stores/${s.store_id}`}>
-                  {s.customer ?? "unknown store"}
+                  {s.store_name ?? s.customer ?? "unknown store"}
                 </Link>{" "}
                 <span className="muted small">
                   ({s.store_address_provenance})

@@ -23,6 +23,7 @@ class HoursSource(enum.StrEnum):
     osm = "osm"
     manual = "manual"
     default = "default"
+    seeded = "seeded"  # demo showcase hours (scripts.seed_demo_showcase)
 
 
 class AddressProvenance(enum.StrEnum):
@@ -125,6 +126,12 @@ class Store(Base):
         DateTime(timezone=True)
     )
     attributes_updated_by: Mapped[str | None] = mapped_column(String)
+    # Showcase catalog entry (scripts.seed_demo_showcase). Demo stores are
+    # excluded from plan matching so they never attach to a real tour, and
+    # hidden from the office store list unless demo data is toggled on.
+    is_demo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -22,6 +22,7 @@ from app.schemas.store import (
     StoreVisit,
 )
 from app.services.service_times import recompute_service_times
+from app.services.store_resolution import order_no_index
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 
@@ -113,8 +114,11 @@ def list_stores(
     """The store catalog, A-Z, for the office view. needs_attributes=true
     filters to stores still missing a crowdsourced attribute (the "which
     facts are we lacking" list); false filters to complete ones. Time
-    aggregates exclude demo-seeded services unless include_demo is set."""
+    aggregates exclude demo-seeded services unless include_demo is set. Demo
+    showcase stores are likewise hidden from the catalog unless include_demo."""
     query = select(Store).order_by(Store.name)
+    if not include_demo:
+        query = query.where(Store.is_demo.is_(False))
     missing = or_(
         Store.size.is_(None),
         Store.in_mall.is_(None),
@@ -136,31 +140,36 @@ def suggest_stops(
     limit: Annotated[int, Query(ge=1, le=20)] = 8,
 ) -> list[StopSuggestion]:
     """Type-ahead for the draft editor: match the typed text against store
-    names/aliases/addresses in the catalog, then against stops of previous
-    tours that never matched a catalog store. Catalog hits come first — they
-    carry the canonical address and default tasks/minutes."""
+    names/aliases/addresses AND known order numbers (Auftrag/VST) in the
+    catalog, then against stops of previous tours that never matched a catalog
+    store. Catalog hits come first — they carry the store_id (linked on pick),
+    the canonical address, the order number, and default tasks/minutes.
+
+    Typing the order number is the fast path: the office keys the branch number
+    and the exact store drops in, address and hours included."""
     pattern = f"%{q.strip()}%"
+    ql = q.strip().lower()
+
+    # order_no -> store_id (unanimous history); inverted for a store's
+    # representative order number.
+    order_index = order_no_index(db)
+    order_by_store: dict[int, str] = {}
+    for order_no, store_id in order_index.items():
+        order_by_store.setdefault(store_id, order_no)
 
     suggestions: list[StopSuggestion] = []
-    for store in db.scalars(
-        select(Store)
-        .where(
-            or_(
-                Store.name.ilike(pattern),
-                Store.street.ilike(pattern),
-                Store.city.ilike(pattern),
-                Store.aliases.cast(String).ilike(pattern),
-            )
-        )
-        .order_by(Store.name)
-        .limit(limit)
-    ):
+    seen_store_ids: set[int] = set()
+
+    def add_store(store: Store, order_no: str | None) -> None:
+        seen_store_ids.add(store.id)
         suggestions.append(
             StopSuggestion(
+                store_id=store.id,
                 name=store.name,
                 street=store.street,
                 postal_code=store.postal_code,
                 city=store.city,
+                order_no=order_no or order_by_store.get(store.id),
                 service_minutes=store.learned_service_minutes
                 or store.default_service_minutes,
                 tasks=", ".join(store.default_tasks) if store.default_tasks else None,
@@ -168,6 +177,36 @@ def suggest_stops(
             )
         )
 
+    # 1. Name / address / alias match.
+    for store in db.scalars(
+        select(Store)
+        .where(
+            Store.is_demo.is_(False),
+            or_(
+                Store.name.ilike(pattern),
+                Store.street.ilike(pattern),
+                Store.city.ilike(pattern),
+                Store.aliases.cast(String).ilike(pattern),
+            ),
+        )
+        .order_by(Store.name)
+        .limit(limit)
+    ):
+        if store.id not in seen_store_ids:
+            add_store(store, None)
+
+    # 2. Order-number (Auftrag/VST) match: the office keys the branch number.
+    if len(suggestions) < limit:
+        for order_no, store_id in order_index.items():
+            if ql not in order_no.lower() or store_id in seen_store_ids:
+                continue
+            store = db.get(Store, store_id)
+            if store is not None and not store.is_demo:
+                add_store(store, order_no)
+            if len(suggestions) >= limit:
+                break
+
+    # 3. History fallback: markets from past tours never added to the catalog.
     room = limit - len(suggestions)
     if room > 0:
         seen = {
@@ -177,6 +216,7 @@ def suggest_stops(
         rows = db.execute(
             select(
                 Stop.customer,
+                Stop.order_no,
                 Stop.claimed_street,
                 Stop.claimed_postal_code,
                 Stop.claimed_city,
@@ -186,6 +226,7 @@ def suggest_stops(
                 Stop.customer.isnot(None),
                 or_(
                     Stop.customer.ilike(pattern),
+                    Stop.order_no.ilike(pattern),
                     Stop.claimed_street.ilike(pattern),
                     Stop.claimed_city.ilike(pattern),
                 ),
@@ -194,17 +235,19 @@ def suggest_stops(
             .order_by(Stop.customer)
             .limit(room * 3)
         ).all()
-        for customer, street, postal_code, city in rows:
+        for customer, order_no, street, postal_code, city in rows:
             key = (customer.lower(), (street or "").lower(), postal_code or "")
             if key in seen:
                 continue
             seen.add(key)
             suggestions.append(
                 StopSuggestion(
+                    store_id=None,
                     name=customer,
                     street=street,
                     postal_code=postal_code,
                     city=city,
+                    order_no=order_no,
                     service_minutes=None,
                     tasks=None,
                     source="history",

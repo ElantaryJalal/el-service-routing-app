@@ -11,11 +11,13 @@ the store list's total time, the store detail's per-service history, and the
 learned estimates (medians per store / per task profile) that feed new plans.
 """
 
+import enum
 from collections.abc import Iterable
 from datetime import date, datetime
 from statistics import median
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -23,6 +25,18 @@ from app.db import Base
 
 # An estimate is only trusted once this many services back it.
 MIN_SAMPLES = 2
+
+
+class MeasurementMethod(enum.StrEnum):
+    """How a ledger row's duration was measured.
+
+    direct: the worker's own start/done stamps (completed_at - started_at) —
+    no drive term, no dependence on a neighbouring stop. derived: inferred
+    from adjacent completions minus the OSRM drive leg. Where both exist for a
+    store, direct is preferred (see services.service_times)."""
+
+    direct = "direct"
+    derived = "derived"
 
 
 def task_signature(task_types: Iterable[str | None]) -> str:
@@ -65,6 +79,18 @@ class ServiceRecord(Base):
     task_signature: Mapped[str] = mapped_column(String, nullable=False, default="")
     tasks_label: Mapped[str | None] = mapped_column(String)
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    # How this duration was measured — direct (start/done stamps) beats derived
+    # (drive-subtracted) when a store has enough of the former.
+    measurement_method: Mapped[MeasurementMethod] = mapped_column(
+        SAEnum(
+            MeasurementMethod,
+            name="measurement_method",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=MeasurementMethod.derived,
+        server_default=MeasurementMethod.derived.value,
+    )
     # Seeded/simulated content (demo driver, seed scripts, e2e users) —
     # excluded from management-facing queries unless explicitly requested.
     is_demo: Mapped[bool] = mapped_column(

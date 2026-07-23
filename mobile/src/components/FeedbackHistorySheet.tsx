@@ -7,7 +7,6 @@
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -15,6 +14,7 @@ import {
   View,
 } from 'react-native';
 
+import { SheetShell } from './SheetShell';
 import { ApiError, api, type FeedbackRead } from '../api/client';
 import { FeedbackEntry } from './FeedbackEntry';
 
@@ -52,10 +52,9 @@ export function FeedbackHistorySheet({
   }, [storeId]);
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheet}>
-          <View style={styles.header}>
+    <SheetShell onClose={onClose}>
+      <View style={styles.sheet}>
+        <View style={styles.header}>
             <Text style={styles.title} numberOfLines={1}>
               Past notes — {title}
             </Text>
@@ -85,14 +84,12 @@ export function FeedbackHistorySheet({
               ))}
             </ScrollView>
           )}
-        </View>
       </View>
-    </Modal>
+    </SheetShell>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: tk.surface,
     borderTopLeftRadius: 16,

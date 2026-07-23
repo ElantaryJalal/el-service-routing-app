@@ -48,6 +48,9 @@ export type FeedbackTag = components['schemas']['FeedbackTag'];
 /** POST /feedback body (client_uuid is the offline idempotency key). */
 export type FeedbackCreate = components['schemas']['FeedbackCreate'];
 
+/** A later-day stop the worker could pull into today (ranked by drive time). */
+export type PullCandidate = components['schemas']['PullCandidateRead'];
+
 // --- Provisional types (endpoints not yet in the backend OpenAPI) ----------
 // TODO(backend): implement POST /tours/extract, GET /tours/{id}/draft,
 // PATCH /tours/{id}/draft/stops/{stop_id}, and the duplicate_groups shape on
@@ -312,6 +315,36 @@ export const api = {
     );
   },
 
+  /**
+   * Smart "add another stop": the nearest feasible later-day stops the worker
+   * could still finish today, ranked by real driving time from (lat, lng).
+   */
+  pullCandidates(
+    tourId: number,
+    fromLat: number,
+    fromLng: number,
+    day: string,
+  ): Promise<PullCandidate[]> {
+    const q = new URLSearchParams({
+      from_lat: String(fromLat),
+      from_lng: String(fromLng),
+      day,
+    });
+    return request(`/tours/${tourId}/pull-candidates?${q.toString()}`);
+  },
+
+  /** Pull a later-day stop into today; returns the re-sequenced plan. */
+  pullStopIntoToday(
+    tourId: number,
+    stopId: number,
+    day: string,
+  ): Promise<OptimiseResult> {
+    return request(
+      `/tours/${tourId}/stops/${stopId}/pull-into-today`,
+      jsonInit('POST', { day }),
+    );
+  },
+
   getTour(tourId: number): Promise<TourRead> {
     return request(`/tours/${tourId}`);
   },
@@ -319,6 +352,12 @@ export const api = {
   /** PATCH per-tour settings (date_mode). Re-run optimise afterwards. */
   patchTour(tourId: number, fields: TourUpdate): Promise<TourRead> {
     return request(`/tours/${tourId}`, jsonInit('PATCH', fields));
+  },
+
+  /** Mark the moment service began (sets started_at server-side; idempotent).
+   * With completion this gives a direct service measurement. */
+  startStop(stopId: number): Promise<StopRead> {
+    return request(`/stops/${stopId}/start`, jsonInit('POST'));
   },
 
   /** Mark a stop done (sets completed_at server-side; idempotent). */

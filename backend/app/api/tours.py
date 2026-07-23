@@ -16,7 +16,12 @@ from geoalchemy2.elements import WKTElement
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import CurrentUser, ensure_tour_visible, require_role
+from app.api.deps import (
+    CurrentUser,
+    ensure_tour_visible,
+    ensure_tour_workable,
+    require_role,
+)
 from app.config import settings
 from app.db import get_db
 from app.models.stop import Stop
@@ -25,8 +30,10 @@ from app.models.task import Task
 from app.models.tour import Tour, TourStatus
 from app.models.user import Role, User
 from app.models.visit_feedback import VisitFeedback
+from app.routing.osrm import OSRMError
 from app.schemas.draft import DraftStop, DraftStopCreate, DraftStopUpdate, TourDraft
 from app.schemas.optimise import OptimiseRequest, OptimiseResult
+from app.schemas.pull import PullCandidateRead, PullIntoTodayRequest
 from app.schemas.stop import (
     AddressMismatchRead,
     CommitResult,
@@ -42,7 +49,8 @@ from app.services.extraction_local import extract_tour_local
 from app.services.extraction_ollama import extract_tour_ollama
 from app.services.geocoding import geocode_address
 from app.services.opening_hours import fetch_opening_hours
-from app.services.optimiser import current_plan, optimise_tour
+from app.services.optimiser import current_plan, optimise_tour, service_estimates
+from app.services.pull_forward import pull_candidates, pull_into_today
 from app.services.push import notify_user
 from app.services.store_catalog import enrich_stop_from_store, match_store
 from app.services.store_resolution import (
@@ -63,6 +71,15 @@ _READERS = Depends(require_role(Role.manager, Role.dispatcher, Role.admin))
 # Stops accept a manual service-time in this range (mirrors StopUpdate/mobile).
 _SERVICE_MIN, _SERVICE_MAX = 30, 600
 _STATUS_HINTS = {"pending", "done", "rework", "skip", "unknown"}
+
+
+# Tag (weekday) labels as printed on the German Tourenplan, Mon–Sun.
+_WEEKDAYS_DE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+
+
+def _weekday_de(value: date | None) -> str | None:
+    """The paper's "Tag" column — derived from Datum, never entered by hand."""
+    return _WEEKDAYS_DE[value.weekday()] if value is not None else None
 
 
 def _parse_iso_date(value: str | None) -> date | None:
@@ -92,14 +109,17 @@ def _draft_stop(stop: Stop) -> DraftStop:
     # editor UI; they read and write the claimed_* columns.
     return DraftStop(
         id=stop.id,
+        date=stop.date.isoformat() if stop.date else None,
+        weekday=stop.weekday,
         customer=stop.customer,
         street=stop.claimed_street,
         postal_code=stop.claimed_postal_code,
         city=stop.claimed_city,
-        order_no=stop.claimed_order_no,
+        order_no=stop.order_no,
         tasks=", ".join(labels) if labels else None,
         remarks=stop.remarks_raw,
         service_minutes=stop.service_minutes,
+        store_id=stop.store_id,
         confidence=confidence,
     )
 
@@ -143,6 +163,10 @@ def create_tour(
         calendar_week=payload.calendar_week,
         date_from=payload.date_from,
         date_to=payload.date_to,
+        team_lead=payload.team_lead,
+        employee=payload.employee,
+        team_no=payload.team_no,
+        vehicle=payload.vehicle,
         status=TourStatus.draft,
     )
     db.add(tour)
@@ -200,6 +224,7 @@ def extract(
         tour = existing_tour
         tour.team_lead = tour.team_lead or parsed.team_lead
         tour.employee = tour.employee or parsed.employee
+        tour.team_no = tour.team_no or parsed.team_no
         tour.vehicle = tour.vehicle or parsed.vehicle
         # NB: `or -1` would misread a max of 0 (falsy) as "no rows".
         max_row = db.scalar(
@@ -214,6 +239,7 @@ def extract(
             date_to=_parse_iso_date(parsed.date_to) or date.today(),
             team_lead=parsed.team_lead,
             employee=parsed.employee,
+            team_no=parsed.team_no,
             vehicle=parsed.vehicle,
             status=TourStatus.draft,
         )
@@ -229,7 +255,7 @@ def extract(
             date=_parse_iso_date(extracted.date),
             weekday=extracted.weekday,
             customer=extracted.customer,
-            claimed_order_no=extracted.order_no,
+            order_no=extracted.order_no,
             claimed_street=extracted.street,
             claimed_postal_code=extracted.postal_code,
             claimed_city=extracted.city,
@@ -285,14 +311,33 @@ def update_tour(
     update: TourUpdate,
     db: Annotated[Session, Depends(get_db)],
 ) -> Tour:
-    """Change per-tour settings (currently date_mode). Switching date_mode
-    does not reschedule by itself — the client re-runs optimise after."""
+    """Change per-tour settings (date_mode) and the paper-plan header fields
+    (Teamleiter / Mitarbeiter / Team-Nr. / Fahrzeug). Only explicitly-set
+    fields are applied; switching date_mode does not reschedule by itself —
+    the client re-runs optimise after."""
     tour = db.get(Tour, tour_id)
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
 
     if update.date_mode is not None:
         tour.date_mode = update.date_mode
+    # Header fields: an explicitly-set field is applied (null clears an optional
+    # one); an omitted field is left untouched. Kunde/KW never go empty.
+    if "customer" in update.model_fields_set and update.customer:
+        tour.customer = update.customer.strip() or tour.customer
+    if update.calendar_week is not None:
+        tour.calendar_week = update.calendar_week
+    new_from = update.date_from if "date_from" in update.model_fields_set else None
+    new_to = update.date_to if "date_to" in update.model_fields_set else None
+    if new_from is not None:
+        tour.date_from = new_from
+    if new_to is not None:
+        tour.date_to = new_to
+    if tour.date_to < tour.date_from:
+        raise HTTPException(status_code=422, detail="date_to is before date_from")
+    for field in ("team_lead", "employee", "team_no", "vehicle"):
+        if field in update.model_fields_set:
+            setattr(tour, field, getattr(update, field))
     db.commit()
     db.refresh(tour)
     return tour
@@ -335,12 +380,13 @@ def patch_draft_stop(
     confidence = dict(stop.confidence or {})
     address_changed = False
 
-    # Draft wire fields edit the plan's claim (claimed_* columns).
-    claim_fields = {
+    # Draft wire fields edit the plan's claim (claimed_* columns) and the
+    # free-text remark; the address triplet re-geocodes on change.
+    wire_fields = {
         "street": "claimed_street",
         "postal_code": "claimed_postal_code",
         "city": "claimed_city",
-        "order_no": "claimed_order_no",
+        "remarks": "remarks_raw",
     }
     for field in update.model_fields_set:
         value = data[field]
@@ -353,8 +399,12 @@ def patch_draft_stop(
             )
             for label in labels:
                 stop.tasks.append(Task(task_type=label, raw_label=label))
+        elif field == "date":
+            # Setting Datum re-derives Tag; clearing it clears both.
+            stop.date = value
+            stop.weekday = _weekday_de(value)
         else:
-            setattr(stop, claim_fields.get(field, field), value)
+            setattr(stop, wire_fields.get(field, field), value)
             if field in ("street", "postal_code", "city"):
                 address_changed = True
         confidence.pop(field, None)
@@ -406,11 +456,14 @@ def add_stop(
     stop = Stop(
         tour_id=tour_id,
         row_index=next_row,
+        date=payload.date,
+        weekday=_weekday_de(payload.date),
         customer=payload.customer,
-        claimed_order_no=payload.order_no,
+        order_no=payload.order_no,
         claimed_street=payload.street,
         claimed_postal_code=payload.postal_code,
         claimed_city=payload.city,
+        remarks_raw=payload.remarks,
         service_minutes=payload.service_minutes,
         status="unconfirmed",
         status_hint="pending",
@@ -420,14 +473,24 @@ def add_stop(
         if label:
             stop.tasks.append(Task(task_type=label, raw_label=label))
 
-    store = match_store(db, payload.customer, payload.city, payload.postal_code)
-    if store is not None:
-        enrich_stop_from_store(stop, store)
+    # A type-ahead pick from the catalog links the store verbatim — its
+    # verified coordinate/hours are the source of truth, so no re-geocoding.
+    # A demo showcase store never links a real plan row. Otherwise fall back to
+    # the same match-or-geocode cascade an extracted row gets.
+    picked = db.get(Store, payload.store_id) if payload.store_id is not None else None
+    if picked is not None and not picked.is_demo:
+        enrich_stop_from_store(stop, picked)
     else:
-        coords = geocode_address(db, payload.street, payload.postal_code, payload.city)
-        if coords is not None:
-            lon, lat = coords
-            stop.claimed_geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
+        store = match_store(db, payload.customer, payload.city, payload.postal_code)
+        if store is not None:
+            enrich_stop_from_store(stop, store)
+        else:
+            coords = geocode_address(
+                db, payload.street, payload.postal_code, payload.city
+            )
+            if coords is not None:
+                lon, lat = coords
+                stop.claimed_geom = WKTElement(f"POINT({lon} {lat})", srid=4326)
 
     db.add(stop)
     db.commit()
@@ -485,20 +548,28 @@ def list_stops(
             ).all()
         )
 
+    # One pass over the ledger/catalog for the task-linked service estimates.
+    estimates = service_estimates(db, stops)
+
     result: list[StopDetail] = []
     for stop in stops:
         lon, lat = coords.get(stop.id, (None, None))
         labels = [task.raw_label or task.task_type for task in stop.tasks]
+        estimate = estimates[stop.id]
         result.append(
             StopDetail(
                 id=stop.id,
                 tour_id=stop.tour_id,
                 customer=stop.customer,
+                store_name=stop.store_name,
+                order_no=stop.order_no,
                 opening_time=stop.effective_opening_time,
                 closing_time=stop.effective_closing_time,
                 service_minutes=stop.service_minutes,
                 hours_source=stop.effective_hours_source,
                 status=stop.status,
+                started_at=stop.started_at,
+                start_source=stop.start_source,
                 completed_at=stop.completed_at,
                 assigned_day=stop.assigned_day,
                 sequence=stop.sequence,
@@ -517,13 +588,19 @@ def list_stops(
                     stop.store.address_provenance if stop.store else None
                 ),
                 tasks=", ".join(labels) if labels else None,
+                status_hint=stop.status_hint,
                 remarks=stop.remarks_raw,
                 lat=lat,
                 lng=lon,
+                service_estimate_minutes=estimate.minutes,
+                service_estimate_source=estimate.source,
                 store_id=stop.store_id,
                 store_attributes_complete=(
                     stop.store.attributes_complete if stop.store else None
                 ),
+                store_size=stop.store.size if stop.store else None,
+                store_in_mall=stop.store.in_mall if stop.store else None,
+                store_has_parking=stop.store.has_parking if stop.store else None,
                 store_feedback_count=(
                     feedback_counts.get(stop.store_id, 0)
                     if stop.store_id is not None
@@ -571,7 +648,9 @@ def commit_tour(
         .order_by(Stop.row_index)
     ).all()
 
-    stores = list(db.scalars(select(Store)))
+    # Demo showcase stores never resolve a real plan row (they'd bleed demo
+    # data into a real tour); they exist only for the seeded demo tour.
+    stores = list(db.scalars(select(Store).where(Store.is_demo.is_(False))))
     store_by_id = {s.id: s for s in stores}
     by_order_no = order_no_index(db)
     coords = store_coords(db, stores)
@@ -798,6 +877,76 @@ def get_plan(
     if tour is None:
         raise HTTPException(status_code=404, detail="tour not found")
     ensure_tour_visible(user, tour)
+    return current_plan(db, tour)
+
+
+@router.get("/{tour_id}/pull-candidates", response_model=list[PullCandidateRead])
+def pull_candidates_endpoint(
+    tour_id: int,
+    from_lat: Annotated[float, Query(ge=-90, le=90)],
+    from_lng: Annotated[float, Query(ge=-180, le=180)],
+    day: date,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+) -> list[PullCandidateRead]:
+    """Smartest later-day stops the worker could add today, ranked by real
+    driving time from their current position and filtered to what they can
+    actually finish before the store closes and within the working day."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    ensure_tour_workable(user, tour)
+    try:
+        candidates = pull_candidates(db, tour, from_lat, from_lng, day)
+    except OSRMError as exc:
+        raise HTTPException(
+            status_code=503, detail="Routing is unavailable — needs a connection."
+        ) from exc
+    return [
+        PullCandidateRead(
+            stop_id=c.stop_id,
+            store_name=c.store_name,
+            drive_seconds=c.drive_seconds,
+            drive_minutes=round(c.drive_seconds / 60),
+            projected_arrival=c.projected_arrival,
+            service_minutes=c.service_minutes,
+        )
+        for c in candidates
+    ]
+
+
+@router.post(
+    "/{tour_id}/stops/{stop_id}/pull-into-today", response_model=OptimiseResult
+)
+def pull_into_today_endpoint(
+    tour_id: int,
+    stop_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    payload: PullIntoTodayRequest | None = None,
+) -> OptimiseResult:
+    """Add a later-day stop to today: reassign its day, re-sequence and re-time
+    today's route from the worker's last position, and persist so the office
+    dashboard reflects it. Idempotent — safe to retry."""
+    tour = db.get(Tour, tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour not found")
+    ensure_tour_workable(user, tour)
+
+    stop = db.get(Stop, stop_id)
+    if stop is None or stop.tour_id != tour_id:
+        raise HTTPException(status_code=404, detail="stop not found")
+    if stop.completed_at is not None:
+        raise HTTPException(status_code=409, detail="stop is already completed")
+
+    day = (payload.day if payload else None) or date.today()
+    try:
+        pull_into_today(db, tour, stop, day)
+    except OSRMError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503, detail="Routing is unavailable — needs a connection."
+        ) from exc
     return current_plan(db, tour)
 
 

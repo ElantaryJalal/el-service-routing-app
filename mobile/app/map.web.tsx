@@ -19,7 +19,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 
-import { ApiError, api, type DateMode } from '../src/api/client';
+import { ApiError, api, type DateMode, type PullCandidate } from '../src/api/client';
 import {
   CompletionSheet,
   type CompletionSync,
@@ -28,18 +28,22 @@ import { DateModeControl } from '../src/components/DateModeControl';
 import { SyncState } from '../src/components/ui';
 import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
+import { StopDetailSheet } from '../src/components/StopDetailSheet';
+import { AddStopSheet } from '../src/components/AddStopSheet';
 import {
   bumpStoreFeedbackCount,
   completionProgress,
   composeOptimisedTour,
   dayColor,
-  etaNearClosing,
   setStopCompletion,
+  setStopStarted,
   setStoreAttributesComplete,
+  stopTitle,
   type OptimisedStop,
   type OptimisedTour,
 } from '../src/domain/optimisedTour';
 import { outbox } from '../src/state/outbox';
+import { useSession } from '../src/state/session';
 import { tourCache } from '../src/state/tourCache';
 import { useOutboxStatus } from '../src/state/useOutboxStatus';
 
@@ -79,81 +83,10 @@ function loadLeaflet(): Promise<any> {
   return leafletPromise;
 }
 
-function toHHMM(time: string): string {
-  const m = /^(\d{1,2}):(\d{2})/.exec(time);
-  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : time;
-}
-
 function formatDay(date: string): string {
   const d = new Date(`${date}T00:00:00`);
   const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
   return `${wd} ${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"]/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string,
-  );
-}
-
-/** Build the popup HTML for a stop. The completion button carries a
- * data-action attribute; the popupopen handler wires it back into React. */
-function popupHtml(s: OptimisedStop, pendingSync: boolean): string {
-  const address = escapeHtml(
-    [s.street, [s.postal_code, s.city].filter(Boolean).join(' ')]
-      .filter(Boolean)
-      .join(', '),
-  );
-  const urgent = etaNearClosing(s.eta, s.closing_time);
-  const chips = s.tasks
-    .map(
-      (t) =>
-        `<span style="background:${tk.soft};border-radius:10px;padding:1px 7px;margin:1px;display:inline-block;font-size:11px">${escapeHtml(t)}</span>`,
-    )
-    .join(' ');
-  const remarks = s.remarks
-    ? `<div style="background:${tk.warningBg};border-left:3px solid ${tk.warning};padding:3px 7px;margin:4px 0;font-size:12px">${escapeHtml(s.remarks)}</div>`
-    : '';
-  const nav = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
-  const etaStyle = urgent ? `color:${tk.danger};font-weight:700` : 'font-weight:600';
-  return `
-    <div style="min-width:180px;font-family:system-ui,sans-serif">
-      <div style="font-weight:700;font-size:14px">${escapeHtml(s.customer ?? `Stop ${s.stop_id}`)}</div>
-      ${address ? `<div style="color:${tk.textMuted};font-size:12px;margin-bottom:4px">${address}</div>` : ''}
-      <div style="font-size:12px;margin:2px 0">
-        <b>${formatDay(s.assigned_day)}</b> · #${s.sequence} ·
-        <span style="${etaStyle}">ETA ${s.eta ? toHHMM(s.eta) : '—'}</span>
-        ${s.closing_time ? ` · closes ${toHHMM(s.closing_time)}` : ''}
-        ${s.service_minutes != null ? ` · ${s.service_minutes} min` : ''}
-      </div>
-      ${urgent ? `<div style="color:${tk.danger};font-size:11px;font-weight:600">Tight — arrives close to closing.</div>` : ''}
-      ${remarks}
-      <div style="margin:4px 0">${chips}</div>
-      ${s.completed_at ? `<div style="color:${tk.status.done};font-size:12px;font-weight:600;margin:2px 0">✓ Completed</div>` : ''}
-      ${pendingSync ? `<div style="color:${tk.warningText};font-size:12px;font-weight:600;margin:2px 0">⇅ not yet synced</div>` : ''}
-      ${
-        s.store_id !== null && s.store_feedback_count > 0
-          ? `<button data-action="show-history" type="button"
-               style="background:${tk.brandSoft};color:${tk.brand};border:none;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;margin:2px 0">
-               🗒 ${s.store_feedback_count} past note${s.store_feedback_count === 1 ? '' : 's'}
-             </button>`
-          : ''
-      }
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <a href="${nav}" target="_blank" rel="noopener"
-           style="display:inline-block;background:${tk.surface};color:${tk.text};border:1px solid ${tk.borderStrong};padding:6px 12px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600">Navigate</a>
-        <button data-action="toggle-complete" type="button"
-                style="background:${s.completed_at ? tk.bg : tk.brand};color:${s.completed_at ? tk.textMuted : tk.onBrand};border:1px solid ${s.completed_at ? tk.borderStrong : tk.brand};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">
-          ${s.completed_at ? 'Mark as not done' : 'Mark done ✓'}
-        </button>
-        ${
-          s.completed_at
-            ? ''
-            : `<button data-action="move-stop" type="button"
-                style="background:${tk.bg};color:${tk.text};border:1px solid ${tk.borderStrong};padding:6px 12px;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Move day…</button>`
-        }
-      </div>
-    </div>`;
 }
 
 export default function MapWebScreen() {
@@ -174,8 +107,45 @@ export default function MapWebScreen() {
   } | null>(null);
   const [replanOpen, setReplanOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState<OptimisedStop | null>(null);
+  const [detail, setDetail] = useState<OptimisedStop | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const outboxStatus = useOutboxStatus();
+
+  // Planning how the week is scheduled is the dispatcher's job — the worker
+  // executes it. Hide date-mode + re-plan from workers; keep per-stop moves.
+  const { user } = useSession();
+  const isOffice = user != null && user.role !== 'worker';
+
+  // Keep the selected day chip scrolled into view so it never hides off-edge.
+  const chipScrollRef = useRef<ScrollView | null>(null);
+  const chipPos = useRef<Record<string, number>>({});
+  useEffect(() => {
+    const x = chipPos.current[String(day)];
+    if (x != null) chipScrollRef.current?.scrollTo({ x: Math.max(0, x - 16), animated: true });
+  }, [day]);
+
+  // "Add another stop" (smart pull-forward) — needs a connection to route.
+  const [online, setOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => {
+      window.removeEventListener('online', on);
+      window.removeEventListener('offline', off);
+    };
+  }, []);
+  const [addStopOpen, setAddStopOpen] = useState(false);
+  const [pull, setPull] = useState<{
+    loading: boolean;
+    candidates: PullCandidate[] | null;
+    error: string | null;
+  }>({ loading: false, candidates: null, error: null });
+  const [pullBusyId, setPullBusyId] = useState<number | null>(null);
 
   /** Apply a local tour change and persist it to the offline cache. */
   function updateTour(fn: (t: OptimisedTour) => OptimisedTour) {
@@ -205,6 +175,27 @@ export default function MapWebScreen() {
       setSheet(null);
       const message = err instanceof ApiError ? err.message : String(err);
       window.alert(`Could not mark done: ${message}`);
+    }
+  }
+
+  /** Mark the moment service began — the direct-measurement start stamp.
+   * Local-first and idempotent, queued through the same offline outbox. */
+  async function markStart(stop: OptimisedStop) {
+    if (stop.started_at) return; // already started
+    const startedAt = new Date().toISOString();
+    updateTour((t) => setStopStarted(t, stop.stop_id, startedAt));
+    setDetail((d) =>
+      d && d.stop_id === stop.stop_id ? { ...d, started_at: startedAt } : d,
+    );
+    try {
+      await outbox.enqueue({ kind: 'start', payload: { stop_id: stop.stop_id } });
+    } catch (err) {
+      updateTour((t) => setStopStarted(t, stop.stop_id, null));
+      setDetail((d) =>
+        d && d.stop_id === stop.stop_id ? { ...d, started_at: null } : d,
+      );
+      const message = err instanceof ApiError ? err.message : String(err);
+      window.alert(`Could not start: ${message}`);
     }
   }
 
@@ -278,9 +269,14 @@ export default function MapWebScreen() {
     setPlanBusy(true);
     try {
       await api.moveStopPlan(stop.stop_id, dayValue);
-      await refreshPlan();
+      const refreshed = await refreshPlan();
       setMoveTarget(null);
-      setDay('all');
+      // Land on the day the stop moved to: the route line is drawn per-day, so
+      // the 'all' overview would hide it. Off-plan moves fall back to 'all'.
+      const target = dayValue
+        ? refreshed.days.find((d) => d.date === dayValue)
+        : undefined;
+      setDay(target ? target.dayIndex : 'all');
     } catch (err) {
       const message = err instanceof ApiError ? err.message : String(err);
       window.alert(`Could not move the stop: ${message}`);
@@ -344,6 +340,103 @@ export default function MapWebScreen() {
   }, [tour, day, allStops]);
 
   const progress = completionProgress(visibleStops);
+  // Finish-early prompt: offered only once the worker has completed at least
+  // one stop AND is down to the last of the day in view — so "Add another
+  // stop" appears as they're genuinely wrapping up, never before any work is
+  // done and never mid-route. (A single-stop day shows it only after that
+  // stop is completed.)
+  const canAddStop =
+    progress.done >= 1 && progress.total - progress.done <= 1;
+
+  // The worker's "today": the day in view, else the day of their latest
+  // completed stop, else the first day. Pull-forward adds to this day.
+  function currentDayISO(): string | null {
+    if (!tour) return null;
+    if (day !== 'all') return tour.days[day]?.date ?? null;
+    let latestAt: string | null = null;
+    let latestDate: string | null = tour.days[0]?.date ?? null;
+    for (const d of tour.days)
+      for (const s of d.stops)
+        if (s.completed_at && (!latestAt || s.completed_at > latestAt)) {
+          latestAt = s.completed_at;
+          latestDate = d.date;
+        }
+    return latestDate;
+  }
+
+  // Fallback position when geolocation is unavailable: the last stop finished.
+  function lastCompletedCoord(): { lat: number; lng: number } | null {
+    if (!tour) return null;
+    let latestAt: string | null = null;
+    let coord: { lat: number; lng: number } | null = null;
+    for (const d of tour.days)
+      for (const s of d.stops)
+        if (
+          s.completed_at &&
+          (s.lat !== 0 || s.lng !== 0) &&
+          (!latestAt || s.completed_at > latestAt)
+        ) {
+          latestAt = s.completed_at;
+          coord = { lat: s.lat, lng: s.lng };
+        }
+    return coord;
+  }
+
+  function currentPosition(): Promise<{ lat: number; lng: number } | null> {
+    return new Promise((resolve) => {
+      if (typeof navigator === 'undefined' || !navigator.geolocation)
+        return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => resolve(null),
+        { timeout: 8000, maximumAge: 60000 },
+      );
+    });
+  }
+
+  async function openAddStop() {
+    setAddStopOpen(true);
+    setPull({ loading: true, candidates: null, error: null });
+    const today = currentDayISO();
+    if (!today) {
+      setPull({ loading: false, candidates: [], error: 'No day to add to yet.' });
+      return;
+    }
+    const from = (await currentPosition()) ?? lastCompletedCoord();
+    if (!from) {
+      setPull({
+        loading: false,
+        candidates: null,
+        error: "Can't tell where you are — turn on location, or finish a stop first.",
+      });
+      return;
+    }
+    try {
+      const candidates = await api.pullCandidates(tourId, from.lat, from.lng, today);
+      setPull({ loading: false, candidates, error: null });
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      setPull({ loading: false, candidates: null, error: message });
+    }
+  }
+
+  async function addCandidate(stopId: number) {
+    const today = currentDayISO();
+    if (!today) return;
+    setPullBusyId(stopId);
+    try {
+      await api.pullStopIntoToday(tourId, stopId, today);
+      const refreshed = await refreshPlan();
+      const target = refreshed.days.find((d) => d.date === today);
+      setDay(target ? target.dayIndex : 'all');
+      setAddStopOpen(false);
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : String(err);
+      window.alert(`Could not add the stop: ${message}`);
+    } finally {
+      setPullBusyId(null);
+    }
+  }
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const weekDayOptions: DayOption[] = (tour?.days ?? []).map((d) => ({
@@ -381,13 +474,22 @@ export default function MapWebScreen() {
 
         const stops = visibleStops.filter((s) => s.lat !== 0 || s.lng !== 0);
 
-        // Completed stops drop out of the active route line (still tappable).
-        const active = stops.filter((s) => s.completed_at === null);
-        if (day !== 'all' && active.length > 1) {
-          L.polyline(
-            active.map((s) => [s.lat, s.lng]),
-            { color: dayColor(day as number), weight: 3, opacity: 0.8 },
-          ).addTo(group);
+        // One route line per day, coloured by day. In a single-day view only
+        // that day is drawn; in the 'all' overview every day's line shows, so
+        // the week always reads as linked routes. Completed stops drop out of
+        // the active line (still tappable).
+        const daysToDraw = day === 'all' ? tour.days : [tour.days[day]];
+        for (const d of daysToDraw) {
+          if (!d) continue;
+          const active = d.stops.filter(
+            (s) => s.completed_at === null && (s.lat !== 0 || s.lng !== 0),
+          );
+          if (active.length > 1) {
+            L.polyline(
+              active.map((s) => [s.lat, s.lng]),
+              { color: dayColor(d.dayIndex), weight: 3, opacity: 0.8 },
+            ).addTo(group);
+          }
         }
 
         for (const s of stops) {
@@ -402,45 +504,11 @@ export default function MapWebScreen() {
             iconSize: [24, 24],
             iconAnchor: [12, 12],
           });
-          const marker = L.marker([s.lat, s.lng], { icon })
-            .bindPopup(popupHtml(s, pendingSync))
+          // Tapping a marker opens the stop detail as a bottom sheet (see
+          // StopDetailSheet) rather than a desktop-sized Leaflet popup.
+          L.marker([s.lat, s.lng], { icon })
+            .on('click', () => setDetail(s))
             .addTo(group);
-          // Bridge the popup's buttons back into React.
-          marker.on('popupopen', (e: any) => {
-            const root = e.popup.getElement() as HTMLElement | null;
-            if (!root) return;
-            const toggle = root.querySelector(
-              '[data-action="toggle-complete"]',
-            ) as HTMLButtonElement | null;
-            if (toggle) {
-              toggle.onclick = () => {
-                map.closePopup();
-                if (s.completed_at === null) markDone(s);
-                else markNotDone(s);
-              };
-            }
-            const notes = root.querySelector(
-              '[data-action="show-history"]',
-            ) as HTMLButtonElement | null;
-            if (notes && s.store_id !== null) {
-              notes.onclick = () => {
-                map.closePopup();
-                setHistory({
-                  storeId: s.store_id!,
-                  title: s.customer ?? `Stop ${s.stop_id}`,
-                });
-              };
-            }
-            const move = root.querySelector(
-              '[data-action="move-stop"]',
-            ) as HTMLButtonElement | null;
-            if (move) {
-              move.onclick = () => {
-                map.closePopup();
-                setMoveTarget(s);
-              };
-            }
-          });
         }
 
         const fitKey = `${day}:${stops.map((s) => s.stop_id).join(',')}`;
@@ -510,11 +578,17 @@ export default function MapWebScreen() {
         )}
 
         <ScrollView
+          ref={chipScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chips}
         >
-          <Chip label="All" active={day === 'all'} onPress={() => setDay('all')} />
+          <Chip
+            label="All"
+            active={day === 'all'}
+            onPress={() => setDay('all')}
+            onLayoutX={(x) => (chipPos.current.all = x)}
+          />
           {tour!.days
             .filter((d) => d.stops.length > 0)
             .map((d) => (
@@ -524,21 +598,25 @@ export default function MapWebScreen() {
                 color={dayColor(d.dayIndex)}
                 active={day === d.dayIndex}
                 onPress={() => setDay(d.dayIndex)}
+                onLayoutX={(x) => (chipPos.current[d.dayIndex] = x)}
               />
             ))}
         </ScrollView>
 
         <View style={styles.controlRow} pointerEvents="box-none">
-          <View style={styles.controlColumn} pointerEvents="box-none">
-            <DateModeControl
-              mode={tour!.date_mode}
-              busy={modeBusy}
-              onChange={changeDateMode}
-            />
-            <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
-              <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
-            </Pressable>
-          </View>
+          {/* Planning controls are office-only; workers execute the plan. */}
+          {isOffice && (
+            <View style={styles.controlColumn} pointerEvents="box-none">
+              <DateModeControl
+                mode={tour!.date_mode}
+                busy={modeBusy}
+                onChange={changeDateMode}
+              />
+              <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
+                <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
+              </Pressable>
+            </View>
+          )}
           <View style={styles.pillColumn} pointerEvents="box-none">
             {progress.total > 0 && (
               <View style={styles.progressPill}>
@@ -555,10 +633,71 @@ export default function MapWebScreen() {
             )}
           </View>
         </View>
+
+        {/* Smart pull-forward: shown once the worker has completed a stop and
+            is on the last of the day in view — they're finishing early and can
+            pull a later stop into today. Disabled offline since it routes live. */}
+        {canAddStop && (
+          <Pressable
+            style={[styles.addStop, styles.addStopHot, !online && styles.addStopOff]}
+            onPress={online ? openAddStop : undefined}
+            disabled={!online}
+          >
+            <Text style={[styles.addStopText, styles.addStopTextHot]}>
+              ＋ Add another stop{online ? '' : ' · needs signal'}
+            </Text>
+          </Pressable>
+        )}
       </View>
 
+      {/* Add-another-stop (smart pull-forward) sheet. */}
+      {addStopOpen && (
+        <AddStopSheet
+          loading={pull.loading}
+          candidates={pull.candidates}
+          error={pull.error}
+          online={online}
+          addingId={pullBusyId}
+          onAdd={addCandidate}
+          onClose={() => setAddStopOpen(false)}
+        />
+      )}
+
+      {/* Tapped-stop detail as a dismissible bottom sheet. */}
+      {detail && (
+        <StopDetailSheet
+          stop={detail}
+          pendingSync={outboxStatus.pendingStopIds.has(detail.stop_id)}
+          onClose={() => setDetail(null)}
+          onStart={() => markStart(detail)}
+          onMarkDone={() => {
+            const s = detail;
+            setDetail(null);
+            markDone(s);
+          }}
+          onMarkNotDone={() => {
+            const s = detail;
+            setDetail(null);
+            markNotDone(s);
+          }}
+          onMove={() => {
+            setMoveTarget(detail);
+            setDetail(null);
+          }}
+          onShowHistory={() => {
+            if (detail.store_id !== null) {
+              setHistory({
+                storeId: detail.store_id,
+                title: stopTitle(detail),
+              });
+            }
+            setDetail(null);
+          }}
+        />
+      )}
+
       {/* Plan editing: mid-week re-plan and manual move-to-day */}
-      {replanOpen && (
+      {isOffice && replanOpen && (
         <DayPickerSheet
           title="Re-plan the rest of the week"
           message="Pick the first day to re-plan. Stops not yet done — including ones missed on earlier days — are spread over that day and after, starting from the last completed stop. Completed stops keep their history."
@@ -570,7 +709,7 @@ export default function MapWebScreen() {
       )}
       {moveTarget && (
         <DayPickerSheet
-          title={`Move ${moveTarget.customer ?? `stop ${moveTarget.stop_id}`}`}
+          title={`Move ${stopTitle(moveTarget)}`}
           message="The stop is added to the end of the chosen day. Its ETA refreshes on the next re-plan."
           options={[
             ...weekDayOptions.filter((o) => o.value !== moveTarget.assigned_day),
@@ -615,16 +754,19 @@ function Chip({
   active,
   color,
   onPress,
+  onLayoutX,
 }: {
   label: string;
   active: boolean;
   color?: string;
   onPress: () => void;
+  onLayoutX?: (x: number) => void;
 }) {
   return (
     <Pressable
       style={[styles.chip, active && styles.chipActive]}
       onPress={onPress}
+      onLayout={(e) => onLayoutX?.(e.nativeEvent.layout.x)}
       hitSlop={8}
     >
       {color && <View style={[styles.chipDot, { backgroundColor: color }]} />}
@@ -708,4 +850,17 @@ const styles = StyleSheet.create({
   chipText: { fontWeight: '600', color: tk.text },
   chipTextActive: { color: tk.onBrand },
   chipDot: { width: 10, height: 10, borderRadius: 5 },
+  addStop: {
+    alignSelf: 'flex-start',
+    backgroundColor: tk.surface,
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: tk.border,
+  },
+  addStopHot: { backgroundColor: tk.brand, borderColor: tk.brand },
+  addStopOff: { opacity: 0.55 },
+  addStopText: { fontWeight: '700', color: tk.text, fontSize: 14 },
+  addStopTextHot: { color: tk.onBrand },
 });

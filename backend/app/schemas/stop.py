@@ -3,7 +3,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.store import AddressProvenance, HoursSource
+from app.models.stop import StartSource
+from app.models.store import AddressProvenance, HoursSource, StoreSize
+from app.services.optimiser import ServiceEstimateSource
 
 
 class StopUpdate(BaseModel):
@@ -34,6 +36,15 @@ class StopCompleteRequest(BaseModel):
     force: bool = False
 
 
+class StopStartRequest(BaseModel):
+    """Body for POST /stops/{id}/start. Idempotent: a repeat call (e.g. an
+    offline-sync retry) keeps the original started_at unless force is set.
+    source records how the start was triggered (defaults to a worker tap)."""
+
+    force: bool = False
+    source: StartSource = StartSource.manual
+
+
 class ResolveAddressRequest(BaseModel):
     """Dispatcher's verdict on a plan-vs-store address mismatch.
 
@@ -51,7 +62,18 @@ class StopRead(BaseModel):
 
     id: int
     tour_id: int
+    # Auftrag/VST — the office's order/job number for this row (their reference
+    # and likely invoicing key). First-class plan data, shown alongside the
+    # store; null when the plan printed none.
+    order_no: str | None = None
+    # The client named on the plan row (Kunde), a per-row fact never coerced to
+    # a tour-wide default — e.g. "HIT Frische 111" on a row whose neighbours say
+    # "ALDI NORD BEUCHA". Distinct from store_name (the physical location): a
+    # row shows BOTH which client and which store.
     customer: str | None
+    # The specific physical store serviced (from the catalog), e.g. "ALDI
+    # Leipzig-Plagwitz"; null when the row was never matched to a catalog store.
+    store_name: str | None = None
     # Hours are stored on the linked store; these read through the stop's
     # effective_* views (wire names kept stable for the clients).
     opening_time: time | None = Field(validation_alias="effective_opening_time")
@@ -59,6 +81,10 @@ class StopRead(BaseModel):
     hours_source: HoursSource = Field(validation_alias="effective_hours_source")
     service_minutes: int | None
     status: str
+    # When service began (POST /stops/{id}/start) and how it was triggered;
+    # with completed_at this yields the direct service measurement.
+    started_at: datetime | None = None
+    start_source: StartSource = StartSource.none
     completed_at: datetime | None
     # Plan placement — set by the optimiser or a manual move (PATCH .../plan).
     assigned_day: date | None = None
@@ -91,16 +117,30 @@ class StopDetail(StopRead):
     # new-store candidates the dispatcher should review before optimising.
     store_address_provenance: AddressProvenance | None
     tasks: str | None
+    # pending | done | rework | skip | unknown. 'rework' is a Nachbessern
+    # (fix-up) mission — shown alongside the task list, not instead of it.
+    status_hint: str
     # Free-text instructions from the plan's remark column; the work for a
     # stop may be stated here instead of task codes.
     remarks: str | None
     lat: float | None
     lng: float | None
+    # Best service-time estimate for THIS visit's task set, and where it came
+    # from (per-task learned profile > store-wide > default). Always a number,
+    # so the card never shows a bare "— min"; the source lets it label a plain
+    # default honestly rather than pass it off as measured.
+    service_estimate_minutes: int
+    service_estimate_source: ServiceEstimateSource
     # Catalog store link (null when the stop wasn't matched). The completion
     # sheet shows the attribute-capture form only while
     # store_attributes_complete is False.
     store_id: int | None
     store_attributes_complete: bool | None
+    # The linked store's crowdsourced attributes (null = not captured yet, so
+    # the card shows a quick-capture control in place of the value).
+    store_size: StoreSize | None
+    store_in_mall: bool | None
+    store_has_parking: bool | None
     # How many past visit-feedback notes exist for the store ("N past notes"
     # indicator on the stop card); 0 when the stop has no store.
     store_feedback_count: int

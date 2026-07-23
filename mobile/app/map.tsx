@@ -23,20 +23,23 @@ import {
 import { DateModeControl } from '../src/components/DateModeControl';
 import { DayPickerSheet, type DayOption } from '../src/components/DayPickerSheet';
 import { FeedbackHistorySheet } from '../src/components/FeedbackHistorySheet';
+import { StopFacts } from '../src/components/StopFacts';
 import {
   bumpStoreFeedbackCount,
   completionProgress,
   composeOptimisedTour,
   dayColor,
-  etaNearClosing,
   setStopCompletion,
   setStoreAttributesComplete,
+  stopClient,
+  stopTitle,
   type OptimisedStop,
   type OptimisedTour,
 } from '../src/domain/optimisedTour';
 import { outbox } from '../src/state/outbox';
 import { tourCache } from '../src/state/tourCache';
 import { useOutboxStatus } from '../src/state/useOutboxStatus';
+import { useSession } from '../src/state/session';
 
 import { Button, SyncState } from '../src/components/ui';
 import { color as tk, shadow } from '../src/theme';
@@ -52,11 +55,6 @@ type Load =
 type DayFilter = number | 'all';
 
 const LEIPZIG = { latitude: 51.3397, longitude: 12.3731 };
-
-function toHHMM(time: string): string {
-  const m = /^(\d{1,2}):(\d{2})/.exec(time);
-  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : time;
-}
 
 function formatDay(date: string): string {
   const d = new Date(`${date}T00:00:00`);
@@ -104,6 +102,9 @@ export default function MapScreen() {
     title: string;
   } | null>(null);
   const [replanOpen, setReplanOpen] = useState(false);
+  // Planning how the week is scheduled is the dispatcher's job; workers execute.
+  const { user } = useSession();
+  const isOffice = user != null && user.role !== 'worker';
   const [moveTarget, setMoveTarget] = useState<OptimisedStop | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const outboxStatus = useOutboxStatus();
@@ -214,9 +215,14 @@ export default function MapScreen() {
     setPlanBusy(true);
     try {
       await api.moveStopPlan(stop.stop_id, dayValue);
-      await refreshPlan();
+      const refreshed = await refreshPlan();
       setMoveTarget(null);
-      setDay('all');
+      // Land on the day the stop moved to: the route line is drawn per-day, so
+      // the 'all' overview would hide it. Off-plan moves fall back to 'all'.
+      const target = dayValue
+        ? refreshed.days.find((d) => d.date === dayValue)
+        : undefined;
+      setDay(target ? target.dayIndex : 'all');
       setSelected(null);
     } catch (err) {
       const message = err instanceof ApiError ? err.message : String(err);
@@ -313,13 +319,20 @@ export default function MapScreen() {
     );
   }
 
-  // Completed stops drop out of the active route line (but stay tappable).
-  const routeCoords =
-    day !== 'all'
-      ? visibleStops
-          .filter((s) => s.completed_at === null)
-          .map((s) => ({ latitude: s.lat, longitude: s.lng }))
-      : [];
+  // One route line per day, coloured by day. In a single-day view only that
+  // day is drawn; in the 'all' overview every day's line shows, so the week
+  // always reads as linked routes. Completed stops drop out of the active line
+  // (but stay tappable).
+  const daysToDraw =
+    day === 'all' ? (tour?.days ?? []) : tour?.days[day] ? [tour.days[day]] : [];
+  const routeLines = daysToDraw
+    .map((d) => ({
+      dayIndex: d.dayIndex,
+      coords: d.stops
+        .filter((s) => s.completed_at === null && (s.lat !== 0 || s.lng !== 0))
+        .map((s) => ({ latitude: s.lat, longitude: s.lng })),
+    }))
+    .filter((r) => r.coords.length > 1);
 
   const progress = completionProgress(visibleStops);
 
@@ -342,13 +355,14 @@ export default function MapScreen() {
         {/* Single-day route line. v1 connects stops in sequence with straight
             segments. TODO(backend): expose OSRM route geometry per day (e.g.
             GET /tours/{id}/route?date=) and draw the real driven path. */}
-        {routeCoords.length > 1 && (
+        {routeLines.map((r) => (
           <Polyline
-            coordinates={routeCoords}
-            strokeColor={dayColor(day as number)}
+            key={r.dayIndex}
+            coordinates={r.coords}
+            strokeColor={dayColor(r.dayIndex)}
             strokeWidth={3}
           />
-        )}
+        ))}
 
         {visibleStops.map((s) => (
           <Marker
@@ -412,16 +426,19 @@ export default function MapScreen() {
         </ScrollView>
 
         <View style={styles.controlRow} pointerEvents="box-none">
-          <View style={styles.controlColumn} pointerEvents="box-none">
-            <DateModeControl
-              mode={tour!.date_mode}
-              busy={modeBusy}
-              onChange={changeDateMode}
-            />
-            <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
-              <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
-            </Pressable>
-          </View>
+          {/* Planning controls are office-only; workers execute the plan. */}
+          {isOffice && (
+            <View style={styles.controlColumn} pointerEvents="box-none">
+              <DateModeControl
+                mode={tour!.date_mode}
+                busy={modeBusy}
+                onChange={changeDateMode}
+              />
+              <Pressable style={styles.replanChip} onPress={() => setReplanOpen(true)}>
+                <Text style={styles.replanChipText}>🔁 Re-plan the rest…</Text>
+              </Pressable>
+            </View>
+          )}
           <View style={styles.pillColumn} pointerEvents="box-none">
             {progress.total > 0 && (
               <View style={styles.progressPill}>
@@ -454,14 +471,14 @@ export default function MapScreen() {
             selected.store_id !== null &&
             setHistory({
               storeId: selected.store_id,
-              title: selected.customer ?? `Stop ${selected.stop_id}`,
+              title: stopTitle(selected),
             })
           }
         />
       )}
 
       {/* Plan editing: mid-week re-plan and manual move-to-day */}
-      {replanOpen && (
+      {isOffice && replanOpen && (
         <DayPickerSheet
           title="Re-plan the rest of the week"
           message="Pick the first day to re-plan. Stops not yet done — including ones missed on earlier days — are spread over that day and after, starting from the last completed stop. Completed stops keep their history."
@@ -473,7 +490,7 @@ export default function MapScreen() {
       )}
       {moveTarget && (
         <DayPickerSheet
-          title={`Move ${moveTarget.customer ?? `stop ${moveTarget.stop_id}`}`}
+          title={`Move ${stopTitle(moveTarget)}`}
           message="The stop is added to the end of the chosen day. Its ETA refreshes on the next re-plan."
           options={[
             ...weekDayOptions.filter((o) => o.value !== moveTarget.assigned_day),
@@ -573,7 +590,6 @@ function StopDetailCard({
   onMove: () => void;
   onShowHistory: () => void;
 }) {
-  const urgent = etaNearClosing(stop.eta, stop.closing_time);
   const address = [
     stop.street,
     [stop.postal_code, stop.city].filter(Boolean).join(' '),
@@ -597,8 +613,14 @@ function StopDetailCard({
       <View style={styles.detailHeader}>
         <View style={styles.flex}>
           <Text style={styles.detailTitle}>
-            {stop.customer ?? `Stop ${stop.stop_id}`}
+            {stopTitle(stop)}
           </Text>
+          {stopClient(stop) ? (
+            <Text style={styles.detailAddress}>Kunde: {stopClient(stop)}</Text>
+          ) : null}
+          {stop.order_no ? (
+            <Text style={styles.detailAddress}>Auftrag {stop.order_no}</Text>
+          ) : null}
           {address ? <Text style={styles.detailAddress}>{address}</Text> : null}
         </View>
         <Pressable onPress={onClose} hitSlop={10}>
@@ -623,32 +645,7 @@ function StopDetailCard({
         {pendingSync && <SyncState state="pending" label="Not yet synced" />}
       </View>
 
-      <View style={[styles.etaRow, urgent && styles.etaRowUrgent]}>
-        <Text style={styles.etaLabel}>ETA</Text>
-        <Text style={[styles.etaValue, urgent && styles.etaValueUrgent]}>
-          {stop.eta ? toHHMM(stop.eta) : '—'}
-        </Text>
-        <Text style={styles.etaLabel}>Closes</Text>
-        <Text style={[styles.etaValue, urgent && styles.etaValueUrgent]}>
-          {stop.closing_time ? toHHMM(stop.closing_time) : '—'}
-        </Text>
-        <Text style={styles.etaLabel}>{stop.service_minutes ?? '—'} min on site</Text>
-      </View>
-      {urgent && (
-        <Text style={styles.urgentHint}>Tight — arrives close to closing time.</Text>
-      )}
-
-      {stop.remarks && <Text style={styles.remarks}>{stop.remarks}</Text>}
-
-      {stop.tasks.length > 0 && (
-        <View style={styles.taskChips}>
-          {stop.tasks.map((t, i) => (
-            <View key={i} style={styles.taskChip}>
-              <Text style={styles.taskChipText}>{t}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+      <StopFacts stop={stop} />
 
       {/* Thumb row: the screen's ONE primary action (Mark done) beside
           Navigate; everything else stays quiet below. */}
@@ -788,33 +785,6 @@ const styles = StyleSheet.create({
     backgroundColor: tk.soft,
   },
   notesBadgeText: { color: tk.brand, fontWeight: '600', fontSize: 13 },
-  etaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flexWrap: 'wrap',
-    backgroundColor: tk.bg,
-    borderRadius: 8,
-    padding: 10,
-  },
-  etaRowUrgent: { backgroundColor: tk.dangerBg },
-  etaLabel: { fontSize: 12, color: tk.textMuted },
-  etaValue: { fontSize: 16, fontWeight: '700', color: tk.text },
-  etaValueUrgent: { color: tk.danger },
-  urgentHint: { color: tk.danger, fontSize: 13, fontWeight: '600' },
-  remarks: {
-    backgroundColor: tk.warningBg,
-    borderLeftWidth: 3,
-    borderLeftColor: tk.warning,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    fontSize: 13,
-    color: tk.warningText,
-  },
-  taskChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  taskChip: { backgroundColor: tk.soft, borderRadius: 14, paddingVertical: 4, paddingHorizontal: 10 },
-  taskChipText: { fontSize: 13, color: tk.text },
-
 
   modalBackdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   modalCard: {

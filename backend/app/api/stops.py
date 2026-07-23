@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, ensure_tour_workable, require_role
 from app.db import get_db
-from app.models.stop import Stop
+from app.models.stop import StartSource, Stop
 from app.models.store import AddressProvenance, GeomProvenance, HoursSource
 from app.models.tour import Tour, TourStatus
 from app.models.user import Role, User
@@ -15,6 +15,7 @@ from app.schemas.stop import (
     StopCompleteRequest,
     StopPlanUpdate,
     StopRead,
+    StopStartRequest,
     StopUpdate,
 )
 from app.services.optimiser import move_stop
@@ -95,21 +96,25 @@ def update_stop(
     return stop
 
 
-@router.patch("/{stop_id}/plan", response_model=StopRead, dependencies=[_PLANNERS])
+@router.patch("/{stop_id}/plan", response_model=StopRead)
 def update_stop_plan(
     stop_id: int,
     payload: StopPlanUpdate,
     db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
 ) -> Stop:
     """Manually move a stop to another day (or off the plan entirely).
 
-    The edit is authoritative: it survives map reloads because clients read
+    Rescheduling a day is field-workable: dispatcher/admin on any tour, a
+    worker only on their own active tour (managers stay read-only). The edit
+    is authoritative: it survives map reloads because clients read
     GET /tours/{id}/plan, which never re-solves. Both affected days are
     re-sequenced; the moved stop's ETA clears until the next optimise run.
     """
     stop = db.get(Stop, stop_id)
     if stop is None:
         raise HTTPException(status_code=404, detail="stop not found")
+    ensure_tour_workable(user, stop.tour)
 
     if payload.assigned_day is not None:
         tour = stop.tour
@@ -136,6 +141,34 @@ def delete_stop(
         raise HTTPException(status_code=404, detail="stop not found")
     db.delete(stop)
     db.commit()
+
+
+@router.post("/{stop_id}/start", response_model=StopRead)
+def start_stop(
+    stop_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: CurrentUser,
+    payload: StopStartRequest | None = None,
+) -> Stop:
+    """Mark the moment service began. Idempotent: a repeat call (e.g. an
+    offline-sync retry) keeps the original started_at unless force is set.
+
+    With the later completion this yields a DIRECT service measurement
+    (completed_at - started_at) that needs no drive subtraction — the primary
+    source for the learned service-time ledger."""
+    stop = db.get(Stop, stop_id)
+    if stop is None:
+        raise HTTPException(status_code=404, detail="stop not found")
+    ensure_tour_workable(user, stop.tour)
+
+    if stop.started_at is None or (payload is not None and payload.force):
+        stop.started_at = func.now()
+        stop.start_source = (
+            payload.source if payload is not None else StartSource.manual
+        )
+        db.commit()
+        db.refresh(stop)
+    return stop
 
 
 @router.post("/{stop_id}/complete", response_model=StopRead)

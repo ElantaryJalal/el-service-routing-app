@@ -149,7 +149,11 @@ function TourWorkspace() {
             This tour is still being prepared by dispatch.
           </div>
         ) : (
-          <DraftEditor tour={tour} onCommitted={onCommitted} />
+          <DraftEditor
+            tour={tour}
+            onCommitted={onCommitted}
+            onTourChange={setTour}
+          />
         )
       ) : (
         <PlanBoard

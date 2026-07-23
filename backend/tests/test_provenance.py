@@ -98,6 +98,32 @@ def test_completion_field_confirms_the_store(world):
     db.close()
 
 
+def test_start_stamps_started_at_idempotently(world):
+    """POST /stops/{id}/start records the service-start moment, keeps it on a
+    repeat (offline-sync retry), and re-stamps only when forced."""
+    _, stop_id, _ = world
+
+    body = client.post(f"/stops/{stop_id}/start").json()
+    assert body["started_at"] is not None
+    assert body["start_source"] == "manual"
+    first = body["started_at"]
+
+    # Idempotent: a repeat keeps the original stamp.
+    again = client.post(f"/stops/{stop_id}/start").json()
+    assert again["started_at"] == first
+
+    # force is allowed and re-stamps.
+    forced = client.post(f"/stops/{stop_id}/start", json={"force": True})
+    assert forced.status_code == 200, forced.text
+    assert forced.json()["started_at"] is not None
+
+    db = SessionLocal()
+    stop = db.get(Stop, stop_id)
+    assert stop.started_at is not None
+    assert stop.start_source.value == "manual"
+    db.close()
+
+
 def test_completion_without_store_is_harmless():
     db = SessionLocal()
     tour = Tour(

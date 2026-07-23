@@ -4,8 +4,9 @@
  * take it off the plan". Pure presentation — the caller runs the API call
  * and keeps `busy` true for the round-trip.
  */
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { SheetShell } from './SheetShell';
 import { color as tk } from '../theme';
 
 export interface DayOption {
@@ -32,9 +33,8 @@ export function DayPickerSheet({
   onClose: () => void;
 }) {
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
+    <SheetShell onClose={onClose}>
+      <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>{title}</Text>
             <Pressable onPress={onClose} hitSlop={10} disabled={busy}>
@@ -71,14 +71,12 @@ export function DayPickerSheet({
               ))}
             </ScrollView>
           )}
-        </View>
       </View>
-    </Modal>
+    </SheetShell>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: tk.scrim, justifyContent: 'flex-end' },
   card: {
     backgroundColor: tk.surface,
     borderTopLeftRadius: 16,

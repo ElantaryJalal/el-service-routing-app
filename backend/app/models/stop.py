@@ -1,14 +1,29 @@
+import enum
 from datetime import date, datetime, time
 from typing import Any
 
 from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
 from app.models.store import HoursSource
+
+
+class StartSource(enum.StrEnum):
+    """How a stop's ``started_at`` was set.
+
+    manual: the worker tapped "Start" on the stop. auto: set automatically
+    (e.g. on navigate/arrival). none: never started explicitly — the service
+    duration falls back to the derived (drive-subtracted) measurement.
+    """
+
+    auto = "auto"
+    manual = "manual"
+    none = "none"
 
 
 class Stop(Base):
@@ -32,10 +47,17 @@ class Stop(Base):
     row_index: Mapped[int] = mapped_column(Integer, nullable=False)
     date: Mapped[date | None] = mapped_column(Date)
     weekday: Mapped[str | None] = mapped_column(String)
+    # The client/tenant named on this plan row (Kunde) — e.g. "ALDI NORD BEUCHA"
+    # or "HIT Frische 111". A PER-ROW fact: different rows can name different
+    # clients, so it is never coerced to a tour-wide default. Distinct from the
+    # physical store (store_name), which is the specific location serviced.
     customer: Mapped[str | None] = mapped_column(String)
+    # Auftrag/VST — the office's order/job number for this row (the branch
+    # reference, and likely their invoicing key). First-class plan data, kept
+    # verbatim; it also anchors catalog resolution (order_no -> store).
+    order_no: Mapped[str | None] = mapped_column(String)
     # What the printed plan said — audit data, never authoritative. Kept even
     # when it contradicts the store, so the office can see their plan was wrong.
-    claimed_order_no: Mapped[str | None] = mapped_column(String)
     claimed_street: Mapped[str | None] = mapped_column(String)
     claimed_postal_code: Mapped[str | None] = mapped_column(String)
     claimed_city: Mapped[str | None] = mapped_column(String)
@@ -74,6 +96,21 @@ class Stop(Base):
     # unconfirmed | confirmed | done
     status: Mapped[str] = mapped_column(
         String, nullable=False, server_default="unconfirmed"
+    )
+    # When service began: set via POST /stops/{id}/start (idempotent). With
+    # completed_at this gives a DIRECT service measurement (done - start) that
+    # needs no drive subtraction and no neighbouring stop — the primary source
+    # for the ledger, with the derived method as fallback.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    start_source: Mapped[StartSource] = mapped_column(
+        SAEnum(
+            StartSource,
+            name="start_source",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=StartSource.none,
+        server_default=StartSource.none.value,
     )
     # Source of truth for "done" (status/status_hint are display-oriented).
     # Set once via POST /stops/{id}/complete; re-completing is a no-op unless
@@ -132,6 +169,17 @@ class Stop(Base):
     # with the claim. The claim only shows through for a stop with no store
     # at all (an unresolved row that cannot be navigated to anyway: its
     # lat/lng are null because effective_geom is store-only).
+
+    @property
+    def store_name(self) -> str | None:
+        """The linked store's real name — the authoritative label for the
+        stop. The printed ``customer`` claim can be generically wrong: some
+        plans stamp the same chain name on every row (e.g. "ALDI NORD BEUCHA")
+        even where the actual store is a different brand, so a card that trusts
+        the claim mislabels the stop. Null when no store is linked."""
+        if self.store is not None:
+            return self.store.name
+        return None
 
     @property
     def effective_street(self) -> str | None:

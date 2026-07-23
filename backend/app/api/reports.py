@@ -143,6 +143,7 @@ def overview(
                 stop_id=s.id,
                 tour_id=s.tour_id,
                 customer=s.customer,
+                store_name=s.store_name,
                 city=s.effective_city,
                 assigned_day=s.assigned_day,
                 eta=s.eta,

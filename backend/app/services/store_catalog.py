@@ -108,7 +108,7 @@ def match_store(
 
     best: Store | None = None
     best_score = 0.0
-    for store in db.scalars(select(Store)).all():
+    for store in db.scalars(select(Store).where(Store.is_demo.is_(False))).all():
         score = _name_similarity(query, store)
         if plz and store.postal_code:
             if plz == store.postal_code.strip():
@@ -147,7 +147,7 @@ def match_store_in_text(
 
     best: Store | None = None
     best_score = 0.0
-    for store in db.scalars(select(Store)).all():
+    for store in db.scalars(select(Store).where(Store.is_demo.is_(False))).all():
         exact_hit = False
         fuzzy_name = 0.0
         for name in [store.name, *(store.aliases or [])]:

@@ -33,7 +33,11 @@ PDF_MEDIA = "application/pdf"
 class PlanRow:
     day: date | None
     sequence: int | None
-    market: str
+    order_no: str
+    # The specific catalog store serviced (physical location), and the plan's
+    # client (Kunde) for the row — shown together, never merged.
+    store: str
+    client: str
     address: str
     eta: str
     closes: str
@@ -41,6 +45,16 @@ class PlanRow:
     tasks: str
     remarks: str
     done: bool
+
+    def market_lines(self) -> list[str]:
+        """Display lines for the Store/Client column: the store first, then the
+        client when it adds information (a different name, or the only name)."""
+        store = self.store.strip()
+        client = self.client.strip()
+        lines = [store] if store else []
+        if client and client.casefold() != store.casefold():
+            lines.append(client if store else client)
+        return lines or [client or "—"]
 
 
 def _hhmm(value: datetime | None) -> str:
@@ -88,7 +102,9 @@ def _rows(db: Session, tour: Tour) -> list[PlanRow]:
             PlanRow(
                 day=s.assigned_day,
                 sequence=s.sequence,
-                market=s.customer or f"Stop {s.id}",
+                order_no=s.order_no or "",
+                store=(s.store.name if s.store else "") or "",
+                client=s.customer or "",
                 address=address,
                 eta=_hhmm(s.eta),
                 closes=closing.strftime("%H:%M") if closing else "",
@@ -105,14 +121,38 @@ def _header_lines(db: Session, tour: Tour) -> tuple[str, str]:
     worker = db.get(User, tour.assigned_user_id) if tour.assigned_user_id else None
     assigned = worker.name if worker else (tour.employee or "unassigned")
     title = f"Tour plan — {tour.customer}"
+    # Office metadata from the paper plan, shown when present.
+    office = [
+        (label, value)
+        for label, value in (
+            ("Teamleiter", tour.team_lead),
+            ("Mitarbeiter", tour.employee),
+            ("Team-Nr.", tour.team_no),
+            ("Fahrzeug", tour.vehicle),
+        )
+        if value
+    ]
+    office_line = "".join(f" · {label} {value}" for label, value in office)
     meta = (
         f"KW {tour.calendar_week} · {tour.date_from} – {tour.date_to} · "
         f"assigned to {assigned} · status {tour.status.value} · tour #{tour.id}"
+        f"{office_line}"
     )
     return title, meta
 
 
-HEADERS = ["Day", "#", "Market", "Address", "ETA", "Closes", "Min", "Tasks", "Remarks"]
+HEADERS = [
+    "Day",
+    "#",
+    "Auftrag",
+    "Store / Client",
+    "Address",
+    "ETA",
+    "Closes",
+    "Min",
+    "Tasks",
+    "Remarks",
+]
 
 
 def build_xlsx(db: Session, tour: Tour) -> bytes:
@@ -148,11 +188,15 @@ def build_xlsx(db: Session, tour: Tour) -> bytes:
     for row in _rows(db, tour):
         day_cell = _day_label(row.day) if row.day != last_day else ""
         last_day = row.day
-        market = f"✓ {row.market}" if row.done else row.market
+        lines = row.market_lines()
+        if row.done:
+            lines[0] = f"✓ {lines[0]}"
+        market = "\n".join(lines)
         ws.append(
             [
                 day_cell,
                 row.sequence,
+                row.order_no,
                 market,
                 row.address,
                 row.eta,
@@ -166,12 +210,14 @@ def build_xlsx(db: Session, tour: Tour) -> bytes:
             cell = ws.cell(row=ws.max_row, column=col)
             cell.font = ink
             cell.border = grid
-            cell.alignment = Alignment(vertical="top", wrap_text=col in (8, 9))
+            cell.alignment = Alignment(vertical="top", wrap_text=col in (4, 9, 10))
         if day_cell:
             ws.cell(row=ws.max_row, column=1).font = Font(bold=True, color=INK)
 
     for col, width in zip(
-        range(1, len(HEADERS) + 1), [16, 4, 28, 34, 7, 7, 6, 40, 30], strict=True
+        range(1, len(HEADERS) + 1),
+        [16, 4, 9, 28, 32, 7, 7, 6, 38, 30],
+        strict=True,
     ):
         ws.column_dimensions[get_column_letter(col)].width = width
     ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
@@ -224,15 +270,19 @@ def build_pdf(db: Session, tour: Tour) -> bytes:
     for row in rows:
         groups.setdefault(row.day, []).append(row)
 
-    col_widths = [10, 52, 62, 13, 13, 11, 66, 42]
+    col_widths = [9, 20, 46, 58, 13, 13, 10, 60, 40]
     for day, day_rows in groups.items():
         story.append(Paragraph(_day_label(day), day_style))
         data = [HEADERS[1:]]
         for r in day_rows:
-            market = f"✓ {r.market}" if r.done else r.market
+            lines = r.market_lines()
+            if r.done:
+                lines[0] = f"✓ {lines[0]}"
+            market = "<br/>".join(lines)
             data.append(
                 [
                     str(r.sequence or ""),
+                    r.order_no,
                     Paragraph(market, body),
                     Paragraph(r.address, body),
                     r.eta,

@@ -10,6 +10,10 @@ import type { components } from '../api/types';
 
 type OptimiseResult = components['schemas']['OptimiseResult'];
 type HoursSource = components['schemas']['HoursSource'];
+export type StoreSize = components['schemas']['StoreSize'];
+/** Where a stop's service-time estimate came from (see backend ServiceEstimate). */
+export type ServiceEstimateSource =
+  components['schemas']['StopDetail']['service_estimate_source'];
 
 export interface OptimisedStop {
   stop_id: number;
@@ -18,24 +22,45 @@ export interface OptimisedStop {
   eta: string | null;
   assigned_day: string; // ISO date of the day this stop belongs to
   dayIndex: number;
+  /** Auftrag/VST — the office's order/job number for this row (their reference
+   * and likely invoicing key); null when the plan printed none. */
+  order_no: string | null;
+  /** The client named on the plan row (Kunde) — a per-row fact, never coerced
+   * to a tour-wide default. Shown alongside the store, not instead of it. */
   customer: string | null;
+  /** The specific physical store serviced (from the catalog); null when the
+   * row was never matched to a catalog store. */
+  store_name: string | null;
   street: string | null;
   postal_code: string | null;
   city: string | null;
   tasks: string[];
+  /** pending | done | rework | skip | unknown — 'rework' = Nachbessern. */
+  status_hint: string;
   /** Free-text instructions from the plan's remark column. */
   remarks: string | null;
   lat: number;
   lng: number;
   service_minutes: number | null;
+  /** Best service-time estimate for this visit's task set (always a number). */
+  service_estimate_minutes: number;
+  /** Where that estimate came from — lets the card label a default honestly. */
+  service_estimate_source: ServiceEstimateSource;
   closing_time: string | null;
   hours_source: HoursSource;
+  /** ISO timestamp when the crew tapped Start; null = not started. With
+   * completed_at this yields a direct service measurement. */
+  started_at: string | null;
   /** ISO timestamp when the crew marked the stop done; null = still open. */
   completed_at: string | null;
   /** Catalog store link (null when the stop wasn't matched). */
   store_id: number | null;
   /** False = the completion sheet should ask for the store's attributes. */
   store_attributes_complete: boolean | null;
+  /** The store's crowdsourced attributes (null = not captured; card prompts). */
+  store_size: StoreSize | null;
+  store_in_mall: boolean | null;
+  store_has_parking: boolean | null;
   /** Past visit-feedback notes for the store ("N past notes" indicator). */
   store_feedback_count: number;
 }
@@ -88,9 +113,41 @@ function addressLabel(d: StopDetail): string {
     [d.street, [d.postal_code, d.city].filter(Boolean).join(' ')]
       .filter(Boolean)
       .join(', ') ||
+    d.store_name ||
     d.customer ||
     `Stop ${d.id}`
   );
+}
+
+/**
+ * The name to show for a stop: the linked store's real name when matched
+ * (the source of truth), else the plan's printed claim, else a placeholder.
+ * The printed claim can be generically wrong — some plans stamp one chain name
+ * (e.g. "ALDI NORD BEUCHA") on every row even where the real store differs — so
+ * a matched stop must be labelled by its store, never the claim.
+ */
+export function stopTitle(stop: {
+  store_name: string | null;
+  customer: string | null;
+  stop_id: number;
+}): string {
+  return stop.store_name ?? stop.customer ?? `Stop ${stop.stop_id}`;
+}
+
+/**
+ * The client (Kunde) to show beneath the store title — the per-row plan claim,
+ * returned only when it adds information: present, and different from the store
+ * name already used as the title. Null when there is nothing extra to say (no
+ * client, or the title already IS the client because no store matched).
+ */
+export function stopClient(stop: {
+  store_name: string | null;
+  customer: string | null;
+}): string | null {
+  if (!stop.customer) return null;
+  if (!stop.store_name) return null; // customer is already the title
+  if (stop.customer === stop.store_name) return null;
+  return stop.customer;
 }
 
 /** "HH:MM[:SS]" → minutes since midnight, or null if unparseable. */
@@ -141,20 +198,29 @@ export function composeOptimisedTour(
           eta: s.eta,
           assigned_day: day.date,
           dayIndex,
+          order_no: d?.order_no ?? null,
           customer: d?.customer ?? null,
+          store_name: d?.store_name ?? null,
           street: d?.street ?? null,
           postal_code: d?.postal_code ?? null,
           city: d?.city ?? null,
           tasks: tasksToChips(d?.tasks ?? null),
+          status_hint: d?.status_hint ?? 'unknown',
           remarks: d?.remarks ?? null,
           lat: d?.lat ?? 0,
           lng: d?.lng ?? 0,
           service_minutes: d?.service_minutes ?? null,
+          service_estimate_minutes: d?.service_estimate_minutes ?? 0,
+          service_estimate_source: d?.service_estimate_source ?? 'default',
           closing_time: d?.closing_time ?? null,
           hours_source: d?.hours_source ?? 'default',
+          started_at: d?.started_at ?? null,
           completed_at: d?.completed_at ?? null,
           store_id: d?.store_id ?? null,
           store_attributes_complete: d?.store_attributes_complete ?? null,
+          store_size: d?.store_size ?? null,
+          store_in_mall: d?.store_in_mall ?? null,
+          store_has_parking: d?.store_has_parking ?? null,
           store_feedback_count: d?.store_feedback_count ?? 0,
         };
       }),
@@ -200,6 +266,27 @@ export function setStopCompletion(
 }
 
 /**
+ * A copy of the tour with one stop's started_at changed. Local-first, exactly
+ * like setStopCompletion: the Map applies (and caches) it immediately, before
+ * the /start write has reached the backend.
+ */
+export function setStopStarted(
+  tour: OptimisedTour,
+  stopId: number,
+  startedAt: string | null,
+): OptimisedTour {
+  return {
+    ...tour,
+    days: tour.days.map((day) => ({
+      ...day,
+      stops: day.stops.map((s) =>
+        s.stop_id === stopId ? { ...s, started_at: startedAt } : s,
+      ),
+    })),
+  };
+}
+
+/**
  * A copy of the tour with one stop's store attributes marked captured, so a
  * later tap on the same store (or another stop of it) stops prompting.
  */
@@ -215,6 +302,45 @@ export function setStoreAttributesComplete(
       stops: day.stops.map((s) =>
         s.store_id === storeId ? { ...s, store_attributes_complete: complete } : s,
       ),
+    })),
+  };
+}
+
+/**
+ * A copy of the tour with a store's attributes updated in place across every
+ * stop of that store, so a value the worker just captured on the detail card
+ * shows immediately (and stops prompting) without a refetch. `complete` is
+ * recomputed from whether all three are now set.
+ */
+export function setStoreAttributes(
+  tour: OptimisedTour,
+  storeId: number,
+  fields: {
+    size?: StoreSize | null;
+    in_mall?: boolean | null;
+    has_parking?: boolean | null;
+  },
+): OptimisedTour {
+  return {
+    ...tour,
+    days: tour.days.map((day) => ({
+      ...day,
+      stops: day.stops.map((s) => {
+        if (s.store_id !== storeId) return s;
+        const store_size = fields.size ?? s.store_size;
+        const store_in_mall = fields.in_mall ?? s.store_in_mall;
+        const store_has_parking = fields.has_parking ?? s.store_has_parking;
+        return {
+          ...s,
+          store_size,
+          store_in_mall,
+          store_has_parking,
+          store_attributes_complete:
+            store_size !== null &&
+            store_in_mall !== null &&
+            store_has_parking !== null,
+        };
+      }),
     })),
   };
 }

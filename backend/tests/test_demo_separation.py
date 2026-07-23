@@ -14,6 +14,7 @@ from app.models.stop import Stop
 from app.models.store import Store
 from app.models.tour import Tour, TourStatus
 from app.models.visit_feedback import VisitFeedback
+from app.services.store_catalog import match_store
 
 
 def _db_reachable() -> bool:
@@ -147,6 +148,52 @@ def test_store_visits_exclude_demo_stops(world):
         f"/stores/{store_id}/visits", params={"include_demo": True}
     ).json()
     assert sorted(r["tour_id"] for r in rows) == sorted([real_tour_id, demo_tour_id])
+
+
+@pytest.fixture
+def demo_store():
+    """A single is_demo showcase store with a distinctive name."""
+    db = SessionLocal()
+    store = Store(
+        name="DemoShowcase-Only Markt",
+        city="Schaustadt",
+        postal_code="99777",
+        is_demo=True,
+    )
+    db.add(store)
+    db.commit()
+    store_id, store_name = store.id, store.name
+    db.close()
+
+    yield store_id, store_name
+
+    db = SessionLocal()
+    db.query(Store).filter(Store.id == store_id).delete()
+    db.commit()
+    db.close()
+
+
+def test_store_list_hides_demo_stores(demo_store):
+    _, name = demo_store
+
+    names = [s["name"] for s in client.get("/stores").json()]
+    assert name not in names
+
+    # The toggle brings the showcase store back into the catalog.
+    rows = client.get("/stores", params={"include_demo": True}).json()
+    assert name in [s["name"] for s in rows]
+
+
+def test_match_store_skips_demo_stores(demo_store):
+    _, name = demo_store
+
+    db = SessionLocal()
+    try:
+        # An exact-name query must not resolve to the demo store — it would
+        # otherwise pin a real plan row to showcase data.
+        assert match_store(db, name, postal_code="99777") is None
+    finally:
+        db.close()
 
 
 def test_overview_excludes_demo_tours(world):

@@ -30,18 +30,29 @@ export interface Tour {
   status: TourStatus;
   date_mode: DateMode;
   assigned_user_id: number | null;
+  /** Office metadata printed on the paper plan — display only, no logic. */
+  team_lead: string | null;
+  employee: string | null;
+  team_no: string | null;
+  vehicle: string | null;
 }
 
 export interface DraftStop {
   id: number;
+  /** Datum — the plan row's date (ISO), and Tag, its auto-derived weekday. */
+  date: string | null;
+  weekday: string | null;
   customer: string | null;
+  /** Auftrag/VST — the office's order/job number for the row. */
+  order_no: string | null;
   street: string | null;
   postal_code: string | null;
   city: string | null;
-  order_no: string | null;
   tasks: string | null;
   remarks: string | null;
   service_minutes: number | null;
+  /** Set once the row is linked to a catalog store (type-ahead or commit). */
+  store_id: number | null;
   confidence: Record<string, number>;
 }
 
@@ -78,7 +89,15 @@ export type Provenance = "printed" | "geocoded" | "verified" | "field_confirmed"
 export interface StopDetail {
   id: number;
   tour_id: number;
+  /** Auftrag/VST — the office's order/job number for the row (their reference
+   * and likely invoicing key); null when the plan printed none. */
+  order_no: string | null;
+  /** The client named on the plan row (Kunde) — a per-row fact, never coerced
+   * to a tour-wide default. Shown alongside store_name, not instead of it. */
   customer: string | null;
+  /** The specific physical store serviced (from the catalog); null when the
+   * row was never matched to a catalog store. */
+  store_name: string | null;
   opening_time: string | null;
   closing_time: string | null;
   service_minutes: number | null;
@@ -172,10 +191,14 @@ export interface Store {
 }
 
 export interface StopSuggestion {
+  /** The catalog store to link on pick (verified data); null for history. */
+  store_id: number | null;
   name: string;
   street: string | null;
   postal_code: string | null;
   city: string | null;
+  /** Auftrag/VST used for this store before — restored without re-typing. */
+  order_no: string | null;
   service_minutes: number | null;
   tasks: string | null;
   source: "catalog" | "history";
@@ -249,6 +272,8 @@ export interface OverviewReport {
     stop_id: number;
     tour_id: number;
     customer: string | null;
+    /** The linked store's real name (source of truth); null when unmatched. */
+    store_name: string | null;
     city: string | null;
     assigned_day: string | null;
     eta: string | null;
@@ -340,14 +365,31 @@ export const api = {
     calendar_week: number;
     date_from: string;
     date_to: string;
+    team_lead?: string | null;
+    employee?: string | null;
+    team_no?: string | null;
+    vehicle?: string | null;
   }) => request<Tour>("/tours", { method: "POST", body: JSON.stringify(body) }),
-  updateTour: (id: number, body: { date_mode?: DateMode }) =>
+  updateTour: (
+    id: number,
+    body: {
+      date_mode?: DateMode;
+      customer?: string;
+      calendar_week?: number;
+      date_from?: string;
+      date_to?: string;
+      team_lead?: string | null;
+      employee?: string | null;
+      team_no?: string | null;
+      vehicle?: string | null;
+    },
+  ) =>
     request<Tour>(`/tours/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   getDraft: (id: number) => request<TourDraft>(`/tours/${id}/draft`),
   patchDraftStop: (
     tourId: number,
     stopId: number,
-    body: Partial<Omit<DraftStop, "id" | "confidence" | "remarks">>,
+    body: Partial<Omit<DraftStop, "id" | "confidence" | "weekday" | "store_id">>,
   ) =>
     request<DraftStop>(`/tours/${tourId}/draft/stops/${stopId}`, {
       method: "PATCH",
@@ -355,7 +397,7 @@ export const api = {
     }),
   addStop: (
     tourId: number,
-    body: Partial<Omit<DraftStop, "id" | "confidence" | "remarks">>,
+    body: Partial<Omit<DraftStop, "id" | "confidence" | "weekday">>,
   ) =>
     request<DraftStop>(`/tours/${tourId}/stops`, {
       method: "POST",

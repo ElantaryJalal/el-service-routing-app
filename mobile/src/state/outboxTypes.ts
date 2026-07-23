@@ -1,7 +1,7 @@
 /** Shared contract between the outbox logic and its per-platform storage
  * drivers (expo-sqlite on native, localStorage-backed on web). */
 
-export type OutboxKind = 'complete' | 'attributes' | 'feedback';
+export type OutboxKind = 'complete' | 'start' | 'attributes' | 'feedback';
 export type OutboxStatus = 'pending' | 'synced' | 'failed';
 
 export interface OutboxRow {
