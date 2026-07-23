@@ -27,6 +27,7 @@ import type { OutboxRow } from './outboxTypes';
 
 export type OutboxWrite =
   | { kind: 'complete'; payload: { stop_id: number; completed: boolean } }
+  | { kind: 'start'; payload: { stop_id: number } }
   | {
       kind: 'attributes';
       payload: { store_id: number; fields: StoreAttributesUpdate };
@@ -70,6 +71,9 @@ async function perform(row: OutboxRow): Promise<void> {
     case 'complete':
       if (write.payload.completed) await api.completeStop(write.payload.stop_id);
       else await api.uncompleteStop(write.payload.stop_id);
+      return;
+    case 'start':
+      await api.startStop(write.payload.stop_id);
       return;
     case 'attributes':
       await api.patchStoreAttributes(write.payload.store_id, write.payload.fields);
@@ -292,7 +296,11 @@ export const outbox = {
     const rows = await outboxStore.pending();
     const pendingStopIds = new Set<number>();
     for (const row of rows) {
-      if (row.kind === 'complete' || row.kind === 'feedback') {
+      if (
+        row.kind === 'complete' ||
+        row.kind === 'start' ||
+        row.kind === 'feedback'
+      ) {
         const payload = JSON.parse(row.payload) as { stop_id?: number };
         if (payload.stop_id != null) pendingStopIds.add(payload.stop_id);
       }

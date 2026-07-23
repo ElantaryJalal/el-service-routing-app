@@ -522,6 +522,31 @@ export interface paths {
         patch: operations["update_stop_plan_stops__stop_id__plan_patch"];
         trace?: never;
     };
+    "/stops/{stop_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Stop
+         * @description Mark the moment service began. Idempotent: a repeat call (e.g. an
+         *     offline-sync retry) keeps the original started_at unless force is set.
+         *
+         *     With the later completion this yields a DIRECT service measurement
+         *     (completed_at - started_at) that needs no drive subtraction — the primary
+         *     source for the learned service-time ledger.
+         */
+        post: operations["start_stop_stops__stop_id__start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stops/{stop_id}/complete": {
         parameters: {
             query?: never;
@@ -1344,6 +1369,16 @@ export interface components {
             learned_minutes: number | null;
         };
         /**
+         * StartSource
+         * @description How a stop's ``started_at`` was set.
+         *
+         *     manual: the worker tapped "Start" on the stop. auto: set automatically
+         *     (e.g. on navigate/arrival). none: never started explicitly — the service
+         *     duration falls back to the derived (drive-subtracted) measurement.
+         * @enum {string}
+         */
+        StartSource: "auto" | "manual" | "none";
+        /**
          * StopCompleteRequest
          * @description Body for POST /stops/{id}/complete. force re-stamps completed_at even
          *     when the stop was already completed (normally a repeat call is a no-op).
@@ -1382,6 +1417,10 @@ export interface components {
             service_minutes: number | null;
             /** Status */
             status: string;
+            /** Started At */
+            started_at?: string | null;
+            /** @default none */
+            start_source: components["schemas"]["StartSource"];
             /** Completed At */
             completed_at: string | null;
             /** Assigned Day */
@@ -1473,6 +1512,10 @@ export interface components {
             service_minutes: number | null;
             /** Status */
             status: string;
+            /** Started At */
+            started_at?: string | null;
+            /** @default none */
+            start_source: components["schemas"]["StartSource"];
             /** Completed At */
             completed_at: string | null;
             /** Assigned Day */
@@ -1483,6 +1526,21 @@ export interface components {
             eta?: string | null;
             /** Unassigned Reason */
             unassigned_reason?: string | null;
+        };
+        /**
+         * StopStartRequest
+         * @description Body for POST /stops/{id}/start. Idempotent: a repeat call (e.g. an
+         *     offline-sync retry) keeps the original started_at unless force is set.
+         *     source records how the start was triggered (defaults to a worker tap).
+         */
+        StopStartRequest: {
+            /**
+             * Force
+             * @default false
+             */
+            force: boolean;
+            /** @default manual */
+            source: components["schemas"]["StartSource"];
         };
         /**
          * StopSuggestion
@@ -2735,6 +2793,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["StopPlanUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StopRead"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_stop_stops__stop_id__start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                stop_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StopStartRequest"] | null;
             };
         };
         responses: {

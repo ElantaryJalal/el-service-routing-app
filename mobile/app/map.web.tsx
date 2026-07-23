@@ -36,6 +36,7 @@ import {
   composeOptimisedTour,
   dayColor,
   setStopCompletion,
+  setStopStarted,
   setStoreAttributesComplete,
   stopTitle,
   type OptimisedStop,
@@ -174,6 +175,27 @@ export default function MapWebScreen() {
       setSheet(null);
       const message = err instanceof ApiError ? err.message : String(err);
       window.alert(`Could not mark done: ${message}`);
+    }
+  }
+
+  /** Mark the moment service began — the direct-measurement start stamp.
+   * Local-first and idempotent, queued through the same offline outbox. */
+  async function markStart(stop: OptimisedStop) {
+    if (stop.started_at) return; // already started
+    const startedAt = new Date().toISOString();
+    updateTour((t) => setStopStarted(t, stop.stop_id, startedAt));
+    setDetail((d) =>
+      d && d.stop_id === stop.stop_id ? { ...d, started_at: startedAt } : d,
+    );
+    try {
+      await outbox.enqueue({ kind: 'start', payload: { stop_id: stop.stop_id } });
+    } catch (err) {
+      updateTour((t) => setStopStarted(t, stop.stop_id, null));
+      setDetail((d) =>
+        d && d.stop_id === stop.stop_id ? { ...d, started_at: null } : d,
+      );
+      const message = err instanceof ApiError ? err.message : String(err);
+      window.alert(`Could not start: ${message}`);
     }
   }
 
@@ -647,6 +669,7 @@ export default function MapWebScreen() {
           stop={detail}
           pendingSync={outboxStatus.pendingStopIds.has(detail.stop_id)}
           onClose={() => setDetail(null)}
+          onStart={() => markStart(detail)}
           onMarkDone={() => {
             const s = detail;
             setDetail(null);

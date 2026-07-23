@@ -33,6 +33,7 @@ export function StopDetailSheet({
   pendingSync,
   showMove = true,
   onClose,
+  onStart,
   onMarkDone,
   onMarkNotDone,
   onMove,
@@ -43,6 +44,7 @@ export function StopDetailSheet({
   /** Manual reschedule is a per-stop execution edit; hidden if not permitted. */
   showMove?: boolean;
   onClose: () => void;
+  onStart: () => void;
   onMarkDone: () => void;
   onMarkNotDone: () => void;
   onMove: () => void;
@@ -55,6 +57,13 @@ export function StopDetailSheet({
     .filter(Boolean)
     .join(', ');
   const done = stop.completed_at !== null;
+  const started = stop.started_at !== null;
+  const startedLabel = stop.started_at
+    ? new Date(stop.started_at).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
 
   function navigate() {
     const url = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}`;
@@ -120,6 +129,16 @@ export function StopDetailSheet({
 
           <StopFacts stop={stop} />
         </ScrollView>
+
+        {/* Start-of-service stamp: tap when the crew begins, so the ledger
+            gets a direct done - start measurement (optional — completing
+            without it still learns via the derived method). */}
+        {!done &&
+          (started ? (
+            <Text style={styles.startedNote}>▶ Started {startedLabel}</Text>
+          ) : (
+            <Button title="▶ Start service" variant="ghost" onPress={onStart} />
+          ))}
 
         {/* Pinned actions: the screen's ONE primary action beside Navigate. */}
         <View style={styles.actionRow}>
@@ -188,5 +207,11 @@ const styles = StyleSheet.create({
   },
   notesBadgeText: { color: tk.brand, fontWeight: '600', fontSize: 12 },
   doneTag: { color: tk.status.done, fontWeight: '700', fontSize: 12 },
+  startedNote: {
+    color: tk.textMuted,
+    fontWeight: '600',
+    fontSize: 13,
+    paddingVertical: 4,
+  },
   actionRow: { flexDirection: 'row', gap: 10 },
 });

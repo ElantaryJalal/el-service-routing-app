@@ -48,6 +48,9 @@ export interface OptimisedStop {
   service_estimate_source: ServiceEstimateSource;
   closing_time: string | null;
   hours_source: HoursSource;
+  /** ISO timestamp when the crew tapped Start; null = not started. With
+   * completed_at this yields a direct service measurement. */
+  started_at: string | null;
   /** ISO timestamp when the crew marked the stop done; null = still open. */
   completed_at: string | null;
   /** Catalog store link (null when the stop wasn't matched). */
@@ -211,6 +214,7 @@ export function composeOptimisedTour(
           service_estimate_source: d?.service_estimate_source ?? 'default',
           closing_time: d?.closing_time ?? null,
           hours_source: d?.hours_source ?? 'default',
+          started_at: d?.started_at ?? null,
           completed_at: d?.completed_at ?? null,
           store_id: d?.store_id ?? null,
           store_attributes_complete: d?.store_attributes_complete ?? null,
@@ -256,6 +260,27 @@ export function setStopCompletion(
       ...day,
       stops: day.stops.map((s) =>
         s.stop_id === stopId ? { ...s, completed_at: completedAt } : s,
+      ),
+    })),
+  };
+}
+
+/**
+ * A copy of the tour with one stop's started_at changed. Local-first, exactly
+ * like setStopCompletion: the Map applies (and caches) it immediately, before
+ * the /start write has reached the backend.
+ */
+export function setStopStarted(
+  tour: OptimisedTour,
+  stopId: number,
+  startedAt: string | null,
+): OptimisedTour {
+  return {
+    ...tour,
+    days: tour.days.map((day) => ({
+      ...day,
+      stops: day.stops.map((s) =>
+        s.stop_id === stopId ? { ...s, started_at: startedAt } : s,
       ),
     })),
   };

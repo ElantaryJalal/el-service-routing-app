@@ -568,6 +568,8 @@ def list_stops(
                 service_minutes=stop.service_minutes,
                 hours_source=stop.effective_hours_source,
                 status=stop.status,
+                started_at=stop.started_at,
+                start_source=stop.start_source,
                 completed_at=stop.completed_at,
                 assigned_day=stop.assigned_day,
                 sequence=stop.sequence,

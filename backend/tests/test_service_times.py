@@ -12,8 +12,12 @@ from fastapi.testclient import TestClient
 
 from app.db import SessionLocal, engine
 from app.main import app
-from app.models.service_record import ServiceRecord, task_signature
-from app.models.stop import Stop
+from app.models.service_record import (
+    MeasurementMethod,
+    ServiceRecord,
+    task_signature,
+)
+from app.models.stop import StartSource, Stop
 from app.models.store import Store
 from app.models.task import Task
 from app.models.tour import Tour
@@ -551,4 +555,169 @@ def test_service_estimates_report_minutes_and_source(seeded):
     assert est[global_default.id].minutes > 0
 
     db.rollback()
+    db.close()
+
+
+@pytest.fixture
+def direct_world(catalog_snapshot):
+    """Stores exercising the DIRECT vs DERIVED ledger paths. Each service sits
+    on its own (tour, day) so nothing pairs across stores by accident."""
+    db = SessionLocal()
+    store_d = Store(
+        name="Directmarkt D",
+        postal_code="99201",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.60 51.30)",
+    )
+    store_e = Store(
+        name="Directmarkt E",
+        postal_code="99202",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.62 51.30)",
+    )
+    anchor = Store(
+        name="Directmarkt Anker",
+        postal_code="99209",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.61 51.30)",
+    )
+    store_f = Store(
+        name="Directmarkt F",
+        postal_code="99203",
+        city="Teststadt",
+        geom="SRID=4326;POINT(12.64 51.30)",
+    )
+    tour = Tour(
+        customer="Aldi Nord",
+        calendar_week=30,
+        date_from=date(2026, 7, 20),
+        date_to=date(2026, 7, 31),
+    )
+    db.add_all([store_d, store_e, anchor, store_f, tour])
+    db.flush()
+
+    def at(d, h, m):
+        return datetime(d.year, d.month, d.day, h, m, tzinfo=UTC)
+
+    def direct(store_id, day, minutes, row):
+        return Stop(
+            tour_id=tour.id,
+            store_id=store_id,
+            row_index=row,
+            assigned_day=day,
+            sequence=1,
+            started_at=at(day, 8, 0),
+            completed_at=at(day, 8, 0) + timedelta(minutes=minutes),
+            start_source=StartSource.manual,
+        )
+
+    d = [date(2026, 7, day) for day in range(20, 32)]  # 12 distinct days
+    stops = [
+        direct(store_d.id, d[0], 65, 0),  # DIRECT 65 min (no drive term)
+        direct(store_e.id, d[1], 60, 1),  # DIRECT 60
+        direct(store_e.id, d[2], 60, 2),  # DIRECT 60  -> enough to prefer
+        direct(store_f.id, d[6], 24 * 60, 20),  # implausible: open 24h
+        direct(store_f.id, d[7], 5, 21),  # implausible: 5 min
+    ]
+    # store_e also has two DERIVED visits (anchor seq1 + E seq2, no start):
+    # gap 200 min - 10 min drive = 190 min each.
+    for i, day in enumerate((d[3], d[4])):
+        stops.append(
+            Stop(
+                tour_id=tour.id,
+                store_id=anchor.id,
+                row_index=30 + i * 2,
+                assigned_day=day,
+                sequence=1,
+                completed_at=at(day, 8, 0),
+            )
+        )
+        stops.append(
+            Stop(
+                tour_id=tour.id,
+                store_id=store_e.id,
+                row_index=31 + i * 2,
+                assigned_day=day,
+                sequence=2,
+                completed_at=at(day, 8, 0) + timedelta(minutes=200),
+            )
+        )
+    db.add_all(stops)
+    db.commit()
+    ids = {
+        "d": store_d.id,
+        "e": store_e.id,
+        "f": store_f.id,
+        "anchor": anchor.id,
+        "tour": tour.id,
+    }
+    db.close()
+
+    yield ids
+
+    db = SessionLocal()
+    db.query(Tour).filter(Tour.id == ids["tour"]).delete()
+    db.query(Store).filter(
+        Store.id.in_([ids["d"], ids["e"], ids["f"], ids["anchor"]])
+    ).delete()
+    db.commit()
+    db.close()
+
+
+def test_direct_observation_is_done_minus_start_no_drive(direct_world):
+    """A stop with started_at yields completed_at - started_at exactly — no
+    drive subtraction, no neighbouring stop needed."""
+    db = SessionLocal()
+    recompute_service_times(db, matrix_provider=_fake_matrix)
+    records = db.query(ServiceRecord).filter_by(store_id=direct_world["d"]).all()
+    assert len(records) == 1
+    rec = records[0]
+    assert rec.measurement_method == MeasurementMethod.direct
+    assert rec.duration_minutes == 65  # 65, not 65 - drive
+    db.close()
+
+
+def test_derived_still_produced_without_start_and_is_tagged(direct_world):
+    """A stop with no started_at still gets a derived record (adjacency +
+    drive subtraction), distinguishable by measurement_method."""
+    db = SessionLocal()
+    recompute_service_times(db, matrix_provider=_fake_matrix)
+    records = db.query(ServiceRecord).filter_by(store_id=direct_world["e"]).all()
+    by_method = {}
+    for r in records:
+        by_method.setdefault(r.measurement_method, []).append(r.duration_minutes)
+    assert sorted(by_method[MeasurementMethod.direct]) == [60, 60]
+    assert sorted(by_method[MeasurementMethod.derived]) == [190, 190]
+    db.close()
+
+
+def test_direct_preferred_over_derived_when_enough(direct_world):
+    """With enough direct records the learned estimate ignores the derived
+    ones, though the ledger keeps every row."""
+    db = SessionLocal()
+    results = {
+        r.store_id: r for r in recompute_service_times(db, matrix_provider=_fake_matrix)
+    }
+    entry = results[direct_world["e"]]
+    # median of the two DIRECT 60s, not median(60, 60, 190, 190) = 125.
+    assert entry.learned_service_minutes == 60
+    assert entry.samples == 2  # the direct pair backs the estimate
+    # ...but all four observations are still in the ledger.
+    total = db.query(ServiceRecord).filter_by(store_id=direct_world["e"]).count()
+    assert total == 4
+    store_e = db.get(Store, direct_world["e"])
+    assert store_e.learned_service_minutes == 60
+    db.close()
+
+
+def test_implausible_direct_durations_rejected(direct_world):
+    """A forgotten Start (open for hours) or a mis-tap (seconds) never enters
+    the ledger, same bounds as the derived path."""
+    db = SessionLocal()
+    results = {
+        r.store_id: r for r in recompute_service_times(db, matrix_provider=_fake_matrix)
+    }
+    assert results[direct_world["f"]].samples == 0
+    assert results[direct_world["f"]].learned_service_minutes is None
+    assert db.query(ServiceRecord).filter_by(store_id=direct_world["f"]).count() == 0
     db.close()

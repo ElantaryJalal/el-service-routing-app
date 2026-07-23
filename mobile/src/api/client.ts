@@ -354,6 +354,12 @@ export const api = {
     return request(`/tours/${tourId}`, jsonInit('PATCH', fields));
   },
 
+  /** Mark the moment service began (sets started_at server-side; idempotent).
+   * With completion this gives a direct service measurement. */
+  startStop(stopId: number): Promise<StopRead> {
+    return request(`/stops/${stopId}/start`, jsonInit('POST'));
+  },
+
   /** Mark a stop done (sets completed_at server-side; idempotent). */
   completeStop(stopId: number): Promise<StopRead> {
     return request(`/stops/${stopId}/complete`, jsonInit('POST'));

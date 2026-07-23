@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.stop import StartSource
 from app.models.store import AddressProvenance, HoursSource, StoreSize
 from app.services.optimiser import ServiceEstimateSource
 
@@ -33,6 +34,15 @@ class StopCompleteRequest(BaseModel):
     when the stop was already completed (normally a repeat call is a no-op)."""
 
     force: bool = False
+
+
+class StopStartRequest(BaseModel):
+    """Body for POST /stops/{id}/start. Idempotent: a repeat call (e.g. an
+    offline-sync retry) keeps the original started_at unless force is set.
+    source records how the start was triggered (defaults to a worker tap)."""
+
+    force: bool = False
+    source: StartSource = StartSource.manual
 
 
 class ResolveAddressRequest(BaseModel):
@@ -71,6 +81,10 @@ class StopRead(BaseModel):
     hours_source: HoursSource = Field(validation_alias="effective_hours_source")
     service_minutes: int | None
     status: str
+    # When service began (POST /stops/{id}/start) and how it was triggered;
+    # with completed_at this yields the direct service measurement.
+    started_at: datetime | None = None
+    start_source: StartSource = StartSource.none
     completed_at: datetime | None
     # Plan placement — set by the optimiser or a manual move (PATCH .../plan).
     assigned_day: date | None = None

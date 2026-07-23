@@ -1,14 +1,29 @@
+import enum
 from datetime import date, datetime, time
 from typing import Any
 
 from geoalchemy2 import Geometry, WKBElement
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db import Base
 from app.models.store import HoursSource
+
+
+class StartSource(enum.StrEnum):
+    """How a stop's ``started_at`` was set.
+
+    manual: the worker tapped "Start" on the stop. auto: set automatically
+    (e.g. on navigate/arrival). none: never started explicitly — the service
+    duration falls back to the derived (drive-subtracted) measurement.
+    """
+
+    auto = "auto"
+    manual = "manual"
+    none = "none"
 
 
 class Stop(Base):
@@ -81,6 +96,21 @@ class Stop(Base):
     # unconfirmed | confirmed | done
     status: Mapped[str] = mapped_column(
         String, nullable=False, server_default="unconfirmed"
+    )
+    # When service began: set via POST /stops/{id}/start (idempotent). With
+    # completed_at this gives a DIRECT service measurement (done - start) that
+    # needs no drive subtraction and no neighbouring stop — the primary source
+    # for the ledger, with the derived method as fallback.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    start_source: Mapped[StartSource] = mapped_column(
+        SAEnum(
+            StartSource,
+            name="start_source",
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=StartSource.none,
+        server_default=StartSource.none.value,
     )
     # Source of truth for "done" (status/status_hint are display-oriented).
     # Set once via POST /stops/{id}/complete; re-completing is a no-op unless
